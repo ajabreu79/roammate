@@ -87,6 +87,24 @@ Three things worth knowing about those values:
   `npx -y clerk@latest users create --email <you>+clerk_test@example.com ...`
   and use verification code `424242`.
 
+## Requirement traceability in the code
+
+Every module tags the SRS requirements it implements inline, so a requirement
+can be traced to code with grep rather than by reading:
+
+```bash
+grep -rn "FR-AUTH-005" app/          # where one requirement is implemented
+grep -rn "GAP" app/                  # every known shortfall, with its requirement
+```
+
+`GAP (<requirement>)` marks a requirement that is only partly met, recorded
+next to the code responsible. `app/main.py` currently carries 54 of them plus
+a module docstring listing the design-doc deviations that apply to the whole
+file; its routes are drafted against models that `model.py` does not define
+yet, so they raise `AttributeError` at request time. Two tests in
+`tests/test_auth.py` are marked `xfail(strict=True)` for that reason and will
+start failing — on purpose — the moment the Activity model lands.
+
 ## Where each requirement lives
 
 | | Requirement | Where |
@@ -103,6 +121,8 @@ Three things worth knowing about those values:
 | FR-AUTH-010 | Protected routes by default | `auth.require_authentication`, registered via `app.before_request` |
 | FR-AUTH-011 | One click between login and signup | Links in `signup.html` / `login.html`, plus Clerk's own |
 | FR-AUTH-012 | Default and changeable photo | `model.DEFAULT_PROFILE_PIC`; `auth.edit_profile_post` |
+| FR-PROF-002 | Editable profile, minus email/university/birthday | `auth.edit_profile_post` |
+| FR-PROF-003 | Age derived from birthday | `model.age_from_birthday` |
 | FR-AUTH-013 | Filterable university dropdown | `app/universities.py`, `auth.university_options`, `static/js/signup2.js` |
 | FR-AUTH-014 | Email verification before access | Clerk; gated by `VERIFICATION_EXEMPT` in `auth.require_authentication` |
 | FR-AUTH-015 | Password complexity | `auth_password.*`, asserted by `scripts/check_clerk_config.py` |

@@ -53,8 +53,8 @@ class RegistrationValidator:
         if birthday > today:
             return None, ["Provided birthday is invalid."]
 
-        age = today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
-        if age < MIN_AGE:
+        # One age calculation for the whole system; see model.age_from_birthday.
+        if model.age_from_birthday(birthday, today) < MIN_AGE:
             return None, [f"You must be at least {MIN_AGE} years old to use this site."]
 
         return birthday, []

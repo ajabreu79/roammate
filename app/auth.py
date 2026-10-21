@@ -296,15 +296,18 @@ def edit_profile():
 @bp.route("/edit-profile", methods=["POST"])
 @flask_login.login_required
 def edit_profile_post():
-    user = flask_login.current_user
+    """Edit the fields FR-PROF-002 permits.
 
-    birthday_raw = request.form.get("birthday")
-    if birthday_raw:
-        birthday, errors = RegistrationValidator.parse_birthday(birthday_raw)
-        if errors:
-            _flash_all(errors)
-            return redirect(url_for("auth.edit_profile"))
-        user.birthday = birthday
+    Email, university and birthday are deliberately NOT editable here. The SRS
+    Design and Implementation Constraints and FR-PROF-002 both forbid it, and
+    the design doc's ProfileService "rejects edits to email, university and
+    birthday" -- age is derived from birthday (FR-PROF-003), so an editable
+    birthday would let a user move themselves out of the 18+ check they
+    already passed at registration (FR-AUTH-005), and university is the
+    isolation boundary for FR-PROF-009. Any such field arriving in the form is
+    ignored rather than trusted.
+    """
+    user = flask_login.current_user
 
     description = request.form.get("description")
     if description is not None:
@@ -313,14 +316,6 @@ def edit_profile_post():
             _flash_all(errors)
             return redirect(url_for("auth.edit_profile"))
         user.desc = description
-
-    university = request.form.get("university")
-    if university:
-        errors = RegistrationValidator.check_university(university)
-        if errors:
-            _flash_all(errors)
-            return redirect(url_for("auth.edit_profile"))
-        user.university = university
 
     for field in ("gender", "school_year"):
         value = request.form.get(field)

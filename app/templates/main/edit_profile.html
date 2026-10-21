@@ -39,27 +39,20 @@
                     {% endfor %}
                 </select>
 
-                <label for="country">Country</label>
-                <select id="country" name="country">
-                    <option value="">All countries</option>
-                    {% for country in countries %}
-                    <option value="{{ country }}">{{ country }}</option>
-                    {% endfor %}
-                </select>
+                {# FR-PROF-002: university and birthday are shown but not
+                   editable. The server ignores them if posted anyway. #}
+                <label>University</label>
+                <p class="readonly-field">{{ current_user.university }}</p>
 
-                <label for="university">University</label>
-                <select id="university" name="university"
-                    data-university-url="{{ url_for('auth.university_options') }}">
-                    {% for university in universities %}
-                    <option value="{{ university.name }}"
-                        {% if current_user.university == university.name %}selected{% endif %}>
-                        {{ university.name }}</option>
-                    {% endfor %}
-                </select>
+                <label>Birthday</label>
+                <p class="readonly-field">
+                    {{ current_user.birthday.isoformat() if current_user.birthday else '-' }}
+                    {# FR-PROF-003: age is derived, never stored #}
+                    {% if current_user.birthday %}(age {{ current_user.age }}){% endif %}
+                </p>
 
-                <label for="birthday">Birthday</label>
-                <input type="date" id="birthday" name="birthday" max="{{ today }}"
-                    value="{{ current_user.birthday.isoformat() if current_user.birthday else '' }}" />
+                <label>Email</label>
+                <p class="readonly-field">{{ current_user.email }}</p>
 
                 <label for="description">Short description</label>
                 <textarea id="description" name="description"

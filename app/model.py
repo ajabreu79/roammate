@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import flask_login
 
@@ -10,6 +10,21 @@ DELETED_USER_NAME = "Deleted user"
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+def age_from_birthday(birthday, today=None):
+    """Derive an age from a birthday (FR-PROF-003).
+
+    The design doc's AgeCalculator: age is computed at request time and never
+    stored, so it cannot drift. Shared by the 18+ check (FR-AUTH-005), the
+    discovery filter (FR-AD-003) and join eligibility (FR-PE-005).
+    """
+    if birthday is None:
+        return None
+    today = today or date.today()
+    return today.year - birthday.year - (
+        (today.month, today.day) < (birthday.month, birthday.day)
+    )
 
 
 class User(db.Model, flask_login.UserMixin):
@@ -59,6 +74,11 @@ class User(db.Model, flask_login.UserMixin):
         if self.is_deleted:
             return DELETED_USER_NAME
         return f"{self.first_name} {self.last_name}".strip()
+
+    @property
+    def age(self):
+        """FR-PROF-003: derived from birthday, never stored as a column."""
+        return age_from_birthday(self.birthday)
 
     @property
     def profile_complete(self):

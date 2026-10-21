@@ -1,3 +1,9 @@
+{# FR-PROF-001 another user's profile; FR-PROF-003 derived age.
+   NFR-SECU-009: email and exact birthday must never render for a viewer who
+   is not the owner, so this template shows `user.age`, never user.birthday
+   or user.email.
+   GAP (FR-PROF-001): still missing university, gender, and the past and
+   upcoming activity lists with dates and links. #}
 {% extends 'base.html' %}
 
 {% block head %}<title>{{ user.name }} - RoamMate</title>{% endblock %}
@@ -11,6 +17,8 @@
         <h2>{{ user.name }}</h2>
         {% if not user.is_deleted %}
         <p>{{ user.school_year }}{% if user.university %} at {{ user.university }}{% endif %}</p>
+        {% if user.age %}<p>Age {{ user.age }}</p>{% endif %}
+        {% if user.gender %}<p>{{ user.gender }}</p>{% endif %}
         <p>{{ user.desc }}</p>
         {% endif %}
 
