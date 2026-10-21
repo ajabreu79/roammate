@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+instance/
+.pytest_cache/
+.env
+clerk-nextjs/
+node_modules/
+.omc/
+.DS_Store

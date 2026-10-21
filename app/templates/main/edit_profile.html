@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Edit profile - RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/signup.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="main-container">
+    <div class="signup-container">
+        <h2>Edit Profile</h2>
+
+        <form class="form-container" action="{{ url_for('auth.edit_profile_post') }}" method="post"
+            enctype="multipart/form-data">
+            <div class="credential-inputs">
+                {# FR-AUTH-012: the profile picture is changeable at any time. #}
+                <img class="profile-photo"
+                    src="{{ url_for('static', filename='resources/' ~ current_user.profile_pic) }}"
+                    alt="Current profile picture" />
+                <label class="profile-pic-button" for="profile_pic">
+                    <span class="file-text">Choose a file</span>
+                    <span class="file-clear" style="display:none;">×</span>
+                </label>
+                <input type="file" id="profile_pic" name="profile_pic" accept="image/*">
+
+                <label for="gender">Gender</label>
+                <select id="gender" name="gender">
+                    {% for option in ['Woman', 'Man', 'Non-binary', 'Prefer not to say'] %}
+                    <option value="{{ option }}" {% if current_user.gender == option %}selected{% endif %}>
+                        {{ option }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="school_year">School year</label>
+                <select id="school_year" name="school_year">
+                    {% for option in ['First year', 'Sophomore', 'Junior', 'Senior', 'Graduate'] %}
+                    <option value="{{ option }}" {% if current_user.school_year == option %}selected{% endif %}>
+                        {{ option }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="country">Country</label>
+                <select id="country" name="country">
+                    <option value="">All countries</option>
+                    {% for country in countries %}
+                    <option value="{{ country }}">{{ country }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="university">University</label>
+                <select id="university" name="university"
+                    data-university-url="{{ url_for('auth.university_options') }}">
+                    {% for university in universities %}
+                    <option value="{{ university.name }}"
+                        {% if current_user.university == university.name %}selected{% endif %}>
+                        {{ university.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="birthday">Birthday</label>
+                <input type="date" id="birthday" name="birthday" max="{{ today }}"
+                    value="{{ current_user.birthday.isoformat() if current_user.birthday else '' }}" />
+
+                <label for="description">Short description</label>
+                <textarea id="description" name="description"
+                    maxlength="{{ max_desc_length }}">{{ current_user.desc }}</textarea>
+                <small><span id="desc-count">0</span>/{{ max_desc_length }}</small>
+            </div>
+
+            <div class="flash-messages">
+                {% for message in get_flashed_messages() %}
+                <p class="flash-message">{{ message }}</p>
+                {% endfor %}
+            </div>
+
+            <input class="submit-button" type="submit" value="Save" />
+        </form>
+
+        <hr />
+
+        {# FR-AUTH-017 #}
+        <h3>Your data</h3>
+        <p><a href="{{ url_for('auth.export_data') }}">Download my data (JSON)</a></p>
+        <p><a href="{{ url_for('auth.password_change') }}">Change password</a></p>
+
+        <h3>Delete account</h3>
+        <form action="{{ url_for('auth.delete_account') }}" method="post">
+            <label for="confirm">Type DELETE to confirm</label>
+            <input type="text" id="confirm" name="confirm" autocomplete="off" required />
+            <button type="submit" class="danger">Delete my account</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/signup2.js') }}"></script>
+{% endblock %}

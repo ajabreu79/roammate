@@ -1,0 +1,18 @@
+{# Loads clerk-js and exposes mountTarget(). The bundle is served from this
+   Clerk instance's own Frontend API domain, derived from the publishable key
+   in providers.clerk_js_url(). #}
+{% if clerk_enabled and clerk_js_url %}
+<script async crossorigin="anonymous" type="text/javascript"
+  data-clerk-publishable-key="{{ clerk_publishable_key }}"
+  src="{{ clerk_js_url }}"></script>
+{% else %}
+<script>
+  window.addEventListener('load', function () {
+    var target = document.querySelector('[data-clerk-mount]');
+    if (target) {
+      target.innerHTML = '<p class="flash-message">Sign-in is not configured. ' +
+        'Set CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY (see README).</p>';
+    }
+  });
+</script>
+{% endif %}

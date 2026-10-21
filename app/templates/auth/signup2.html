@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Complete your profile - RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/signup.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="main-container">
+    <div class="signup-container">
+        <h2>Complete Your Profile</h2>
+
+        {# Step 2 of FR-AUTH-001. Clerk already has email, name and password. #}
+        <form class="form-container" action="{{ url_for('auth.signup2_post') }}" method="post"
+            enctype="multipart/form-data">
+            <div class="credential-inputs">
+                <label for="gender" class="required">Gender</label>
+                <select id="gender" name="gender" required>
+                    <option value="">Select…</option>
+                    <option>Woman</option>
+                    <option>Man</option>
+                    <option>Non-binary</option>
+                    <option>Prefer not to say</option>
+                </select>
+
+                <label for="school_year" class="required">School year</label>
+                <select id="school_year" name="school_year" required>
+                    <option value="">Select…</option>
+                    <option>First year</option>
+                    <option>Sophomore</option>
+                    <option>Junior</option>
+                    <option>Senior</option>
+                    <option>Graduate</option>
+                </select>
+
+                {# FR-AUTH-013: filter by country, then type to filter the list.
+                   Options are fetched from /auth/universities by signup2.js. #}
+                <label for="country">Country</label>
+                <select id="country" name="country">
+                    <option value="">All countries</option>
+                    {% for country in countries %}
+                    <option value="{{ country }}">{{ country }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="university" class="required">University</label>
+                <select id="university" name="university" required
+                    data-university-url="{{ url_for('auth.university_options') }}">
+                    <option value="">Select…</option>
+                    {% for university in universities %}
+                    <option value="{{ university.name }}">{{ university.name }}</option>
+                    {% endfor %}
+                </select>
+
+                {# FR-AUTH-005: the browser blocks future dates; the server
+                   re-checks and also enforces 18+. #}
+                <label for="birthday" class="required">Birthday</label>
+                <input type="date" id="birthday" name="birthday" required max="{{ today }}" />
+
+                {# FR-AUTH-012 #}
+                <label>Profile picture</label>
+                <label class="profile-pic-button" for="profile_pic">
+                    <span class="file-text">Choose a file</span>
+                    <span class="file-clear" style="display:none;">×</span>
+                </label>
+                <input type="file" id="profile_pic" name="profile_pic" accept="image/*">
+
+                {# FR-AUTH-006 #}
+                <label for="description">Short description</label>
+                <textarea id="description" name="description" maxlength="{{ max_desc_length }}"
+                    placeholder="Tell us something about yourself"></textarea>
+                <small><span id="desc-count">0</span>/{{ max_desc_length }}</small>
+            </div>
+
+            <div class="flash-messages">
+                {% for message in get_flashed_messages() %}
+                <p class="flash-message">{{ message }}</p>
+                {% endfor %}
+            </div>
+
+            <input class="submit-button" type="submit" value="Finish" />
+        </form>
+    </div>
+
+    <div class="info-container">
+        <img src="{{ url_for('static', filename='resources/logo-full.png') }}" class="info-image" />
+        <h1>Welcome to Roammate&trade;</h1>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/signup2.js') }}"></script>
+{% endblock %}

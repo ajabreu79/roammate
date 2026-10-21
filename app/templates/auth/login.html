@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Login - RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="main-container">
+    <div class="login-container">
+        <h2>Log In</h2>
+
+        {# FR-AUTH-007 email + password, and FR-AUTH-016 Google, both via Clerk. #}
+        <div id="clerk-sign-in" data-clerk-mount></div>
+
+        <div class="flash-messages">
+            {% for message in get_flashed_messages() %}
+            <p class="flash-message">{{ message }}</p>
+            {% endfor %}
+        </div>
+
+        {# FR-AUTH-011 #}
+        <p>Don't have an account? <a href="{{ url_for('auth.signup') }}">Sign up</a></p>
+    </div>
+
+    <div class="info-container">
+        <img src="{{ url_for('static', filename='resources/logo-full.png') }}" class="info-image" />
+        <h1>Welcome to RoamMate&trade;</h1>
+        <p>Join students across campus in endless activities and adventures.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% include 'auth/_clerk.html' %}
+<script>
+  window.addEventListener('load', async function () {
+    if (typeof Clerk === 'undefined') return;
+    await Clerk.load();
+    Clerk.mountSignIn(document.getElementById('clerk-sign-in'), {
+      signUpUrl: "{{ url_for('auth.signup') }}",
+      forceRedirectUrl: "{{ url_for('main.index') }}",
+    });
+  });
+</script>
+{% endblock %}

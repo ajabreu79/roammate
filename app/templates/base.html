@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='resources/logo.png') }}">
+  <title>RoamMate</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='roammate.css') }}" />
+  <link rel="resources" href="{{ url_for('static', filename='resources') }}" />
+  {% block head %}{% endblock %}
+</head>
+
+<body>
+  <header>
+    <div class="header-container">
+      <a href="{{ url_for('main.index') }}">
+        <img src="{{ url_for('static', filename='resources/logo-full.png') }}" alt="Home"
+          class="header-icon header-logo" />
+      </a>
+      <h1>RoamMate</h1>
+      <div class="spacer">
+        {% if current_user.is_authenticated %}
+        <a href="{{ url_for('main.profile', user_id=current_user.id) }}">
+          <img src="{{ url_for('static', filename='resources/' ~ current_user.profile_pic) }}" alt="Profile"
+            class="header-icon" />
+        </a>
+        <!-- Logout is POST-only: a GET logout can be triggered by any
+             third-party page embedding it as an image. -->
+        <form class="logout-form" action="{{ url_for('auth.logout_post') }}" method="post">
+          <button type="submit" class="logout-button">Log out</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+  <section class="content">{% block content %}{% endblock %}</section>
+  <footer><small>Developed for CSDS 393</small></footer>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"
+    integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+  {% block scripts %}
+  <script src="{{ url_for('static', filename='roammate.js') }}"></script>
+  {% endblock %}
+</body>
+
+</html>
