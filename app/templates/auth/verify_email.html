@@ -8,11 +8,13 @@
 <div class="main-container">
     <div class="signup-container">
         <h2>Confirm your email</h2>
+        {# The instance uses the email_code strategy, so this is a 6-digit
+           code entered in Clerk's component, not a link to click. #}
         {% if email %}
-        <p>We sent a verification link to <strong>{{ email }}</strong>.
-            Open it to finish setting up your account.</p>
+        <p>We sent a verification code to <strong>{{ email }}</strong>.
+            Enter it below to finish setting up your account.</p>
         {% else %}
-        <p>Open the verification link we emailed you to finish setting up your account.</p>
+        <p>Enter the verification code we emailed you to finish setting up your account.</p>
         {% endif %}
 
         <div id="clerk-user-button" data-clerk-mount></div>
@@ -23,7 +25,7 @@
             {% endfor %}
         </div>
 
-        <p><a href="{{ url_for('auth.verify_email') }}">I have verified my email</a></p>
+        <p><a href="{{ url_for('auth.verify_email') }}">I have entered my code</a></p>
         <form action="{{ url_for('auth.logout_post') }}" method="post">
             <button type="submit">Log out</button>
         </form>

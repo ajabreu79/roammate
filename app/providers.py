@@ -25,23 +25,69 @@ import binascii
 
 from flask import current_app
 
-# What this application needs configured in the Clerk dashboard. Keep in step
-# with the requirements table; scripts/check_clerk.py reads it.
-CLERK_REQUIRED_SETTINGS = {
+# The Clerk instance configuration this application depends on, as
+# (config path, operator, expected value, requirement). Paths match the JSON
+# from `clerk config pull`; scripts/check_clerk_config.py asserts them.
+#
+# These are instance settings, not code, and the Backend API does not expose
+# them for reading -- only the authenticated CLI does. So they are checked by
+# piping a config pull into that script rather than by check_clerk.py.
+CLERK_REQUIRED_SETTINGS = [
     # FR-AUTH-001 step 1 collects first and last name. Clerk only returns them
-    # if its sign-up form asks for them, and sync_from_provider has nothing to
-    # fall back on, so this is required rather than cosmetic.
-    "require_first_and_last_name": True,
-    "password_min_length": 12,
-    "password_requires_lowercase": True,
-    "password_requires_uppercase": True,
-    "password_requires_number": True,
-    "password_requires_special": True,
-    "email_verification_required": True,
-    "google_oauth_enabled": True,
-    "session_lifetime_days": 30,
-    "bot_and_abuse_protection": True,
-}
+    # if its sign-up form requires them, and sync_from_provider has nothing to
+    # fall back on.
+    ("user_model.first_name.required", "==", True, "FR-AUTH-001"),
+    ("user_model.last_name.required", "==", True, "FR-AUTH-001"),
+
+    # FR-AUTH-015 asks for 12 or longer. The instance is deliberately set to
+    # 15, which is stricter and still satisfies the requirement, so this
+    # asserts the floor rather than an exact value.
+    ("auth_password.min_length", ">=", 12, "FR-AUTH-015"),
+    ("auth_password.require_lowercase", "==", True, "FR-AUTH-015"),
+    ("auth_password.require_uppercase", "==", True, "FR-AUTH-015"),
+    ("auth_password.require_numbers", "==", True, "FR-AUTH-015"),
+    ("auth_password.require_special_char", "==", True, "FR-AUTH-015"),
+
+    ("auth_email.verify_at_sign_up", "==", True, "FR-AUTH-014"),
+    ("connection_oauth_google.enabled", "==", True, "FR-AUTH-016"),
+
+    # FR-AUTH-008: 30 days, in seconds.
+    ("session_settings.maximum_lifetime.enabled", "==", True, "FR-AUTH-008"),
+    ("session_settings.maximum_lifetime.duration_seconds", "==", 2592000, "FR-AUTH-008"),
+
+    # FR-AUTH-018: captcha covers sign-up flooding, lockout covers sign-in.
+    ("auth_attack_protection.bot_protection.captcha_enabled", "==", True, "FR-AUTH-018"),
+    ("auth_attack_protection.user_lockout.enabled", "==", True, "FR-AUTH-018"),
+]
+
+
+def lookup(config, path):
+    """Follow a dotted path into the config. Returns (found, value)."""
+    node = config
+    for segment in path.split("."):
+        if not isinstance(node, dict) or segment not in node:
+            return False, None
+        node = node[segment]
+    return True, node
+
+
+def check_settings(config):
+    """Compare a `clerk config pull` payload against CLERK_REQUIRED_SETTINGS.
+
+    Returns a list of (path, requirement, actual, expected, ok) rows.
+    """
+    operators = {
+        "==": lambda actual, expected: actual == expected,
+        ">=": lambda actual, expected: isinstance(actual, (int, float)) and actual >= expected,
+    }
+
+    results = []
+    for path, operator, expected, requirement in CLERK_REQUIRED_SETTINGS:
+        found, actual = lookup(config, path)
+        ok = found and operators[operator](actual, expected)
+        results.append((path, requirement, actual if found else "<missing>",
+                        f"{operator} {expected}", ok))
+    return results
 
 
 class ProviderUnavailable(RuntimeError):

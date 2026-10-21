@@ -3,15 +3,20 @@
 
     .venv/bin/python scripts/check_clerk.py
 
-Verifies that the configured keys work and prints the dashboard settings the
-requirements depend on. Those settings are not readable through the Backend
-API, so they are a manual checklist rather than an assertion.
+Verifies that the configured keys work. The instance settings the
+requirements depend on are not readable through the Backend API; check those
+with scripts/check_clerk_config.py.
 """
 
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv                  # noqa: E402
+
+# `flask run` loads .env on its own; a plain script has to ask.
+load_dotenv()
 
 from app import create_app                      # noqa: E402
 from app.providers import CLERK_REQUIRED_SETTINGS, clerk_js_url  # noqa: E402
@@ -43,9 +48,9 @@ def main():
             except Exception as error:
                 problems.append(f"Backend API call failed: {error}")
 
-    print("\nDashboard settings this application assumes:")
-    for setting, expected in CLERK_REQUIRED_SETTINGS.items():
-        print(f"  [ ] {setting} = {expected}")
+    print(f"\n{len(CLERK_REQUIRED_SETTINGS)} Clerk instance settings are also required.")
+    print("This script cannot read them -- the Backend API does not expose them. Check with:")
+    print("  npx -y clerk@latest config pull | .venv/bin/python scripts/check_clerk_config.py")
 
     if problems:
         print("\nProblems:")
