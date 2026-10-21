@@ -156,23 +156,44 @@ instance-settings checker.
 
 ## Schema changes
 
-`create_app` calls `db.create_all()`, which creates missing tables but never
-alters existing ones. A schema change therefore does **not** reach a database
-that already has the old tables — the app starts and then fails on the first
-query with `no such column`.
-
-Until Flask-Migrate/Alembic is set up, the dev fix is to recreate the local
-database:
+Managed by Flask-Migrate. The schema is **not** created by `create_all` any
+more, because that creates missing tables and never alters existing ones — a
+model change then fails on a database that already has the old tables.
 
 ```bash
-mv instance/roammate.sqlite instance/roammate.sqlite.bak
-.venv/bin/flask --app app run     # create_all + university seed on startup
+.venv/bin/flask --app app db upgrade                     # apply migrations
+.venv/bin/flask --app app db migrate -m "what changed"   # after editing model.py
+.venv/bin/flask --app app db upgrade                     # then apply it
+.venv/bin/flask --app app seed-universities              # FR-AUTH-013 reference data
 ```
 
-Nothing of value is lost: `User` rows are derived from Clerk and
-`AuthService.sync_from_provider` recreates them on the next sign-in. That
-stops being true the moment there are activities or messages worth keeping,
-which is the point at which migrations become mandatory rather than optional.
+Always read the generated migration before applying it; autogenerate misses
+CHECK constraint changes and renames (it sees a rename as a drop plus an add,
+which loses data).
+
+`tests/test_migrations.py` fails if `model.py` and the migrations disagree, so
+a forgotten `db migrate` is caught by the suite rather than in deployment.
+`render_as_batch` is on, which SQLite needs for anything beyond adding a
+column.
+
+The local database is **`instance/roammate.sqlite`** — gitignored, created by
+`db upgrade`.
+
+## Deployment database
+
+The design doc specifies PostgreSQL, and the schema depends on things MySQL
+cannot express directly:
+
+| Feature | Used for | MySQL |
+|---|---|---|
+| Partial unique index | FR-ACE-007 one Admin per activity; FR-PE-002 one pending request | Not supported. Needs a generated column plus a unique index to emulate |
+| Row-level security | NFR-SECU-010 cross-university isolation at the query layer | Not supported |
+| Trigram index | FR-AUTH-013 university search | No equivalent; full-text index is a different trade-off |
+| WAL archiving | NFR-REL-003 one-hour RPO, point-in-time recovery | Binlog-based, different setup |
+
+Set `DATABASE_URL` to a PostgreSQL URL and run `flask db upgrade`. The
+migration already carries `postgresql_where` on each partial index, so they
+are created properly there.
 
 ## Known gaps
 

@@ -4,3 +4,4 @@ Flask-Login>=0.6
 clerk-backend-api>=7.0
 python-dotenv>=1.0
 python-dateutil>=2.9
+Flask-Migrate>=4.0

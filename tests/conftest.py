@@ -2,7 +2,7 @@ import datetime
 
 import pytest
 
-from app import create_app, db as _db, providers, ratelimit
+from app import create_app, db as _db, providers, ratelimit, universities
 
 
 @pytest.fixture
@@ -57,7 +57,13 @@ def app(monkeypatch, identity, clerk_calls, tmp_path):
 
     ratelimit.reset()
     with application.app_context():
+        # The real schema comes from `flask db upgrade`; tests build it
+        # directly from the models so they do not need a migration run.
+        _db.create_all()
+        universities.seed()
         yield application
+        _db.session.remove()
+        _db.drop_all()
 
 
 @pytest.fixture

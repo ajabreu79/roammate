@@ -9,7 +9,7 @@ import datetime
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app import create_app, db as _db, model
+from app import create_app, db as _db, model, universities
 
 
 @pytest.fixture
@@ -19,7 +19,11 @@ def app():
         "TESTING": True,
     })
     with application.app_context():
+        _db.create_all()
+        universities.seed()
         yield application
+        _db.session.remove()
+        _db.drop_all()
 
 
 @pytest.fixture

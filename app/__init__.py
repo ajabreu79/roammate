@@ -2,12 +2,16 @@ import os
 from datetime import timedelta
 
 from flask import Flask
+from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 import flask_login
 import sqlalchemy
 from sqlalchemy.engine import Engine
 
 db = SQLAlchemy()
+# render_as_batch rewrites ALTER TABLE as copy-and-swap, which SQLite needs
+# for anything beyond adding a column.
+migrate = Migrate(render_as_batch=True)
 login_manager = flask_login.LoginManager()
 
 
@@ -68,6 +72,7 @@ def create_app(test_config=None):
     os.makedirs(app.instance_path, exist_ok=True)
 
     db.init_app(app)
+    migrate.init_app(app, db)
     login_manager.init_app(app)
     # FR-AUTH-010: unauthenticated access to a protected route lands on sign up.
     login_manager.login_view = "auth.signup"
@@ -105,10 +110,22 @@ def create_app(test_config=None):
     # unfinished-signup redirection are the default for every route.
     app.before_request(auth.require_authentication)
 
-    with app.app_context():
-        db.create_all()
-        # FR-AUTH-013: the dropdown reads the University table, so it needs rows.
-        from . import universities
-        universities.seed()
+    register_cli(app)
 
     return app
+
+
+def register_cli(app):
+    """Commands for work that used to happen on every startup.
+
+    The schema is created by `flask db upgrade`, not by create_all, so that a
+    change to model.py reaches a database that already has the old tables.
+    Seeding is explicit for the same reason: it is data, not schema.
+    """
+
+    @app.cli.command("seed-universities")
+    def seed_universities():
+        """FR-AUTH-013: fill the University table from the seed list."""
+        from . import universities
+        added = universities.seed()
+        print(f"{added} universities added.")
