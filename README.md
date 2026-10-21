@@ -98,12 +98,21 @@ grep -rn "GAP" app/                  # every known shortfall, with its requireme
 ```
 
 `GAP (<requirement>)` marks a requirement that is only partly met, recorded
-next to the code responsible. `app/main.py` currently carries 54 of them plus
-a module docstring listing the design-doc deviations that apply to the whole
-file; its routes are drafted against models that `model.py` does not define
-yet, so they raise `AttributeError` at request time. Two tests in
-`tests/test_auth.py` are marked `xfail(strict=True)` for that reason and will
-start failing — on purpose — the moment the Activity model lands.
+next to the code responsible. `app/main.py` carries 49 of them plus a module
+docstring listing the design-doc deviations that apply to the whole file.
+
+Its routes are still drafted against models `model.py` does not define
+(`ActivityProposal`, `ActivityProposalParticipation`, `ActivityProposalStatus`,
+`ActivityProposalJoinRequest`, `ActivityProposalMessage`, `Meetup`), so they
+raise `AttributeError` at request time. Two tests in `tests/test_auth.py` are
+marked `xfail(strict=True)` for that reason and will start failing — on
+purpose — the moment the Activity model lands.
+
+The rules those routes enforce live in `app/activity_rules.py` instead of
+inline, which is what the design doc specifies (`ActivityValidator`,
+`ActivityStatusMachine`, `RolePolicy`, `EligibilityChecker`) and what makes
+them testable without a database per NFR-SOFT-002. `tests/test_activity_rules.py`
+covers them with 49 tests and no app context.
 
 ## Where each requirement lives
 
@@ -123,6 +132,10 @@ start failing — on purpose — the moment the Activity model lands.
 | FR-AUTH-012 | Default and changeable photo | `model.DEFAULT_PROFILE_PIC`; `auth.edit_profile_post` |
 | FR-PROF-002 | Editable profile, minus email/university/birthday | `auth.edit_profile_post` |
 | FR-PROF-003 | Age derived from birthday | `model.age_from_birthday` |
+| FR-ACE-004 | Activity field validation | `activity_rules.ActivityValidator` |
+| FR-ACE-007 | Role permission matrix | `activity_rules.RolePolicy` |
+| FR-ACE-009 | Status transitions | `activity_rules.ActivityStatusMachine` |
+| FR-PE-003…009 | Join eligibility | `activity_rules.EligibilityChecker` |
 | FR-AUTH-013 | Filterable university dropdown | `app/universities.py`, `auth.university_options`, `static/js/signup2.js` |
 | FR-AUTH-014 | Email verification before access | Clerk; gated by `VERIFICATION_EXEMPT` in `auth.require_authentication` |
 | FR-AUTH-015 | Password complexity | `auth_password.*`, asserted by `scripts/check_clerk_config.py` |
