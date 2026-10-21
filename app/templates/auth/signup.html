@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Sign up - RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/signup.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="main-container">
+    <div class="signup-container">
+        <h2>Sign Up</h2>
+
+        {# Step 1 of FR-AUTH-001 -- email, first and last name, password and
+           confirmation -- is Clerk's sign-up component. It also enforces
+           FR-AUTH-003 (match), FR-AUTH-015 (complexity), FR-AUTH-014 (email
+           verification), FR-AUTH-016 (Google) and FR-AUTH-018 (rate limits),
+           so no password ever reaches this application (FR-AUTH-002). #}
+        <div id="clerk-sign-up" data-clerk-mount></div>
+
+        <div class="flash-messages">
+            {% for message in get_flashed_messages() %}
+            <p class="flash-message">{{ message }}</p>
+            {% endfor %}
+        </div>
+
+        {# FR-AUTH-011 #}
+        <p>Already have an account? <a href="{{ url_for('auth.login') }}">Log in</a></p>
+    </div>
+
+    <div class="info-container">
+        <img src="{{ url_for('static', filename='resources/logo-full.png') }}" class="info-image" />
+        <h1>Welcome!&trade;</h1>
+        <p>Adventure with classmates and make new friends.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% include 'auth/_clerk.html' %}
+<script>
+  window.addEventListener('load', async function () {
+    if (typeof Clerk === 'undefined') return;
+    await Clerk.load();
+    Clerk.mountSignUp(document.getElementById('clerk-sign-up'), {
+      signInUrl: "{{ url_for('auth.login') }}",
+      // Step 2 collects the fields Clerk knows nothing about.
+      forceRedirectUrl: "{{ url_for('auth.signup2') }}",
+    });
+  });
+</script>
+{% endblock %}

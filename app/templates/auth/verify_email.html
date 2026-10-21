@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block head %}<title>Verify your email - RoamMate</title>{% endblock %}
+
+{% block content %}
+{# FR-AUTH-014. Clerk sends and checks the verification email; this page is
+   where an unverified account is held until it does. #}
+<div class="main-container">
+    <div class="signup-container">
+        <h2>Confirm your email</h2>
+        {# The instance uses the email_code strategy, so this is a 6-digit
+           code entered in Clerk's component, not a link to click. #}
+        {% if email %}
+        <p>We sent a verification code to <strong>{{ email }}</strong>.
+            Enter it below to finish setting up your account.</p>
+        {% else %}
+        <p>Enter the verification code we emailed you to finish setting up your account.</p>
+        {% endif %}
+
+        <div id="clerk-user-button" data-clerk-mount></div>
+
+        <div class="flash-messages">
+            {% for message in get_flashed_messages() %}
+            <p class="flash-message">{{ message }}</p>
+            {% endfor %}
+        </div>
+
+        <p><a href="{{ url_for('auth.verify_email') }}">I have entered my code</a></p>
+        <form action="{{ url_for('auth.logout_post') }}" method="post">
+            <button type="submit">Log out</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% include 'auth/_clerk.html' %}
+<script>
+  window.addEventListener('load', async function () {
+    if (typeof Clerk === 'undefined') return;
+    await Clerk.load();
+    // Clerk's user button owns "resend verification email".
+    Clerk.mountUserButton(document.getElementById('clerk-user-button'));
+  });
+</script>
+{% endblock %}
