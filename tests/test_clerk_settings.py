@@ -96,3 +96,32 @@ def test_the_wrong_session_lifetime_is_caught():
     config = copy.deepcopy(COMPLIANT_CONFIG)
     config["session_settings"]["maximum_lifetime"]["duration_seconds"] = 604800  # 7 days
     assert "session_settings.maximum_lifetime.duration_seconds" in failures(config)
+
+
+# --- key misconfiguration messages -------------------------------------------
+
+def test_missing_keys_are_reported_as_unset():
+    from app.providers import clerk_status
+
+    enabled, message = clerk_status(None, None)
+    assert not enabled
+    assert "CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY is not set" in message
+
+
+def test_a_malformed_key_is_not_reported_as_unset(app):
+    """A stale shell export beats .env, so "set it" would be wrong advice."""
+    from app.providers import clerk_status
+
+    enabled, message = clerk_status("pk_test_...", "sk_test_...")
+    assert not enabled
+    assert "malformed" in message
+    assert "unset CLERK_PUBLISHABLE_KEY" in message
+
+
+def test_well_formed_keys_are_enabled(app):
+    import base64
+    from app.providers import clerk_status
+
+    key = "pk_test_" + base64.b64encode(b"happy-hippo-1.clerk.accounts.dev$").decode().rstrip("=")
+    enabled, message = clerk_status(key, "sk_test_real")
+    assert enabled and message == ""

@@ -72,10 +72,13 @@ def create_app(test_config=None):
     def clerk_context():
         """Templates mount Clerk's components with the publishable key."""
         publishable_key = app.config.get("CLERK_PUBLISHABLE_KEY")
+        enabled, message = providers.clerk_status(
+            publishable_key, app.config.get("CLERK_SECRET_KEY"))
         return {
             "clerk_publishable_key": publishable_key,
             "clerk_js_url": providers.clerk_js_url(publishable_key),
-            "clerk_enabled": bool(app.config.get("CLERK_SECRET_KEY") and publishable_key),
+            "clerk_enabled": enabled,
+            "clerk_problem": message,
         }
 
     app.register_blueprint(auth.bp)

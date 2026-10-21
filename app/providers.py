@@ -224,6 +224,30 @@ def is_configured():
 CLERK_JS_VERSION = "5"
 
 
+def clerk_status(publishable_key, secret_key):
+    """Why Clerk is or is not usable. Returns (enabled, message).
+
+    Distinguishes a missing key from a malformed one: an environment variable
+    exported earlier in the shell wins over .env (load_dotenv does not
+    override), so "set it" is the wrong advice when the real problem is a
+    leftover placeholder.
+    """
+    missing = [name for name, value in
+               (("CLERK_PUBLISHABLE_KEY", publishable_key), ("CLERK_SECRET_KEY", secret_key))
+               if not value]
+    if missing:
+        return False, f"{' and '.join(missing)} is not set. See README."
+
+    if not clerk_js_url(publishable_key):
+        return False, (
+            f'CLERK_PUBLISHABLE_KEY is set but malformed: "{publishable_key[:12]}...". '
+            "A stale export in this shell overrides .env -- try "
+            "`unset CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY`."
+        )
+
+    return True, ""
+
+
 def clerk_js_url(publishable_key):
     """The clerk-js bundle URL for a publishable key.
 

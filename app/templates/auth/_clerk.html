@@ -11,7 +11,7 @@
     var target = document.querySelector('[data-clerk-mount]');
     if (target) {
       target.innerHTML = '<p class="flash-message">Sign-in is not configured. ' +
-        'Set CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY (see README).</p>';
+        {{ clerk_problem | tojson }} + '</p>';
     }
   });
 </script>
