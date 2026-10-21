@@ -315,7 +315,7 @@ def edit_profile_post():
         if errors:
             _flash_all(errors)
             return redirect(url_for("auth.edit_profile"))
-        user.desc = description
+        user.description = description
 
     for field in ("gender", "school_year"):
         value = request.form.get(field)
@@ -328,7 +328,7 @@ def edit_profile_post():
         if errors:
             _flash_all(errors)
             return redirect(url_for("auth.edit_profile"))
-        user.profile_pic = filename
+        user.profile_photo_key = filename
 
     db.session.commit()
     flash("Profile updated.")

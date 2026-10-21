@@ -2,8 +2,7 @@
    NFR-SECU-009: email and exact birthday must never render for a viewer who
    is not the owner, so this template shows `user.age`, never user.birthday
    or user.email.
-   GAP (FR-PROF-001): still missing university, gender, and the past and
-   upcoming activity lists with dates and links. #}
+   FR-PROF-005: follow button state comes from the Follow row. #}
 {% extends 'base.html' %}
 
 {% block head %}<title>{{ user.name }} - RoamMate</title>{% endblock %}
@@ -12,14 +11,36 @@
 <div class="main-container">
     <div class="profile-container">
         <img class="profile-photo"
-            src="{{ url_for('static', filename='resources/' ~ user.profile_pic) }}"
+            src="{{ url_for('static', filename='resources/' ~ user.profile_photo) }}"
             alt="{{ user.name }}" />
         <h2>{{ user.name }}</h2>
         {% if not user.is_deleted %}
-        <p>{{ user.school_year }}{% if user.university %} at {{ user.university }}{% endif %}</p>
+        <p>{{ user.school_year }}{% if user.university_name %} at {{ user.university_name }}{% endif %}</p>
         {% if user.age %}<p>Age {{ user.age }}</p>{% endif %}
         {% if user.gender %}<p>{{ user.gender }}</p>{% endif %}
-        <p>{{ user.desc }}</p>
+        <p>{{ user.description }}</p>
+
+        {# FR-PROF-001: past and upcoming activities, each with a date and a
+           link to the activity. #}
+        <h3>Upcoming activities</h3>
+        <ul>
+            {% for activity in upcoming_activities %}
+            <li>
+                <a href="{{ url_for('main.activity', activity_id=activity.id) }}">{{ activity.title }}</a>
+                &mdash; {{ activity.start_at.strftime('%Y-%m-%d') }}
+            </li>
+            {% else %}<li>None yet.</li>{% endfor %}
+        </ul>
+
+        <h3>Past activities</h3>
+        <ul>
+            {% for activity in past_activities %}
+            <li>
+                <a href="{{ url_for('main.activity', activity_id=activity.id) }}">{{ activity.title }}</a>
+                &mdash; {{ activity.start_at.strftime('%Y-%m-%d') }}
+            </li>
+            {% else %}<li>None yet.</li>{% endfor %}
+        </ul>
         {% endif %}
 
         <div class="flash-messages">

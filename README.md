@@ -154,14 +154,43 @@ The suite stubs the Clerk adapter, so it runs without Clerk credentials.
 adapter calls still exist, and `tests/test_clerk_settings.py` covers the
 instance-settings checker.
 
+## Schema changes
+
+`create_app` calls `db.create_all()`, which creates missing tables but never
+alters existing ones. A schema change therefore does **not** reach a database
+that already has the old tables — the app starts and then fails on the first
+query with `no such column`.
+
+Until Flask-Migrate/Alembic is set up, the dev fix is to recreate the local
+database:
+
+```bash
+mv instance/roammate.sqlite instance/roammate.sqlite.bak
+.venv/bin/flask --app app run     # create_all + university seed on startup
+```
+
+Nothing of value is lost: `User` rows are derived from Clerk and
+`AuthService.sync_from_provider` recreates them on the next sign-in. That
+stops being true the moment there are activities or messages worth keeping,
+which is the point at which migrations become mandatory rather than optional.
+
 ## Known gaps
 
+- No migrations. See *Schema changes* above.
 - The rate limiter in `app/ratelimit.py` is in-process, so each worker keeps
   its own counter; a multi-worker deployment needs Redis behind it.
 - `AccountDeletionService._leave_activities` expects a `ParticipationService`
-  that does not exist yet; deletion logs a warning and proceeds.
-- `DataExportService` exports the profile only. Follows, memberships and
-  messages appear automatically once those relationships exist on `User`.
+  that does not exist yet, so deleting an account that admins an activity
+  leaves that activity with no Admin (FR-ACE-007). The partial unique index
+  caps admins at one; it cannot require one.
+- Waitlists, invitations, admin succession, real-time messaging, message
+  edit/delete and @mentions have tables but no code.
+- The three `/activity/<id>/meetups` routes reference `model.Meetup`, which
+  does not exist in the design doc's schema and so is not in `model.py`. They
+  raise at request time. Either add a requirement and a table, or remove the
+  routes and the calendar UI that calls them.
+- `DataExportService` now exports profile, follows, memberships and messages,
+  as the design specifies.
 - No CSS yet: `roammate.css`, `roammate.js`, `css/signup.css`, `css/login.css`
   and `resources/logo.png` / `logo-full.png` are referenced by the templates
   but not in the repo, so pages render unstyled.

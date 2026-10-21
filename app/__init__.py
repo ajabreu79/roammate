@@ -4,9 +4,26 @@ from datetime import timedelta
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 import flask_login
+import sqlalchemy
+from sqlalchemy.engine import Engine
 
 db = SQLAlchemy()
 login_manager = flask_login.LoginManager()
+
+
+@sqlalchemy.event.listens_for(Engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, _record):
+    """SQLite ignores foreign keys unless asked.
+
+    The schema leans on ON DELETE CASCADE and SET NULL for account deletion
+    (FR-AUTH-017), so without this the dev database silently skips them while
+    PostgreSQL enforces them -- the worst kind of difference between
+    environments.
+    """
+    if type(dbapi_connection).__module__.startswith("sqlite3"):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 def create_app(test_config=None):
@@ -90,5 +107,8 @@ def create_app(test_config=None):
 
     with app.app_context():
         db.create_all()
+        # FR-AUTH-013: the dropdown reads the University table, so it needs rows.
+        from . import universities
+        universities.seed()
 
     return app

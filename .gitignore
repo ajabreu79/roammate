@@ -8,3 +8,4 @@ clerk-nextjs/
 node_modules/
 .omc/
 .DS_Store
+instance/*.bak-*

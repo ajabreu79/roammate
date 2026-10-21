@@ -15,7 +15,7 @@
             <div class="credential-inputs">
                 {# FR-AUTH-012: the profile picture is changeable at any time. #}
                 <img class="profile-photo"
-                    src="{{ url_for('static', filename='resources/' ~ current_user.profile_pic) }}"
+                    src="{{ url_for('static', filename='resources/' ~ current_user.profile_photo) }}"
                     alt="Current profile picture" />
                 <label class="profile-pic-button" for="profile_pic">
                     <span class="file-text">Choose a file</span>
@@ -42,7 +42,7 @@
                 {# FR-PROF-002: university and birthday are shown but not
                    editable. The server ignores them if posted anyway. #}
                 <label>University</label>
-                <p class="readonly-field">{{ current_user.university }}</p>
+                <p class="readonly-field">{{ current_user.university_name }}</p>
 
                 <label>Birthday</label>
                 <p class="readonly-field">
@@ -56,7 +56,7 @@
 
                 <label for="description">Short description</label>
                 <textarea id="description" name="description"
-                    maxlength="{{ max_desc_length }}">{{ current_user.desc }}</textarea>
+                    maxlength="{{ max_desc_length }}">{{ current_user.description }}</textarea>
                 <small><span id="desc-count">0</span>/{{ max_desc_length }}</small>
             </div>
 
