@@ -142,6 +142,7 @@ covers them with 49 tests and no app context.
 | FR-AUTH-016 | Google OAuth | Clerk social connection; `auth.oauth_google_callback` |
 | FR-AUTH-017 | Deletion and GDPR export | `AccountDeletionService`, `DataExportService` |
 | FR-AUTH-018 | Rate limiting | Clerk for sign-in/sign-up; `app/ratelimit.py` for our own endpoints |
+| FR-PROF-009 | Cross-university isolation | `main._university_scoped`, plus RLS policies in migration `4de96d5e2e95` |
 
 ## Tests
 
@@ -211,6 +212,35 @@ Neon.
 Neon's free tier suspends an idle compute after about 5 minutes; the first
 request afterwards pays a cold start of a few hundred milliseconds. Worth
 warming before a live demo.
+
+### Row-level security (NFR-SECU-010)
+
+Migration `4de96d5e2e95` enables RLS on the 17 university-scoped tables.
+`app_current_university_id()` reads the `app.auth_provider_id` setting, which
+`AuthService._apply_university_scope` publishes per transaction from the
+verified Clerk token, and resolves it to a university. With the setting absent
+no rows are visible, so unauthenticated access fails closed.
+
+**RLS never applies to a table's owner**, and Neon's generated owner role also
+has `BYPASSRLS`. So the policies only bite when the application connects as a
+separate role:
+
+```bash
+APP_DB_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))') \
+  .venv/bin/python scripts/setup_app_role.py
+```
+
+That creates `roammate_app` (no superuser, no BYPASSRLS) with per-table grants
+and prints the URL to use as `DATABASE_URL`. Keep `DATABASE_URL_UNPOOLED` on
+the owner: migrations need to bypass RLS, and that is exactly why they run as
+the owner.
+
+Verified on Neon: the app role sees only its own university's rows, 0 rows with
+the setting unset, and a cross-university `INSERT` is refused by the policy's
+`WITH CHECK`.
+
+`_university_scoped()` in `main.py` stays. It is the application half; RLS is
+what holds when a query forgets to call it.
 
 ### Branches
 

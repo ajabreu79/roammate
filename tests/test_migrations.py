@@ -69,3 +69,18 @@ def test_the_pending_request_index_survives_the_migration(migrated_app):
 
     indexes = inspect(db.engine).get_indexes("join_requests")
     assert any(i["name"] == "uq_join_request_pending" and i["unique"] for i in indexes)
+
+
+def test_the_rls_migration_is_a_no_op_on_sqlite(migrated_app):
+    """Row-level security is PostgreSQL-only, so the SQLite path must skip it
+    rather than fail -- the whole suite runs on SQLite."""
+    from sqlalchemy import inspect
+
+    # It applied cleanly (the fixture ran upgrade) and created no extra tables.
+    tables = set(inspect(db.engine).get_table_names())
+    assert len(tables - {"alembic_version"}) == 21
+
+
+def test_both_revisions_are_applied(migrated_app):
+    head = db.session.execute(db.text("select version_num from alembic_version")).scalar()
+    assert head == "4de96d5e2e95"

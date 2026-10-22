@@ -18,6 +18,29 @@ class AuthService:
     """Registration, sign-in and sign-out on top of the Clerk adapter."""
 
     @staticmethod
+    def _apply_university_scope(provider_user_id):
+        """Publish the verified identity to PostgreSQL for row-level security.
+
+        NFR-SECU-010: the policies added in migration 4de96d5e2e95 resolve the
+        requester's university from this setting, so no query can return
+        another university's rows even if it forgets _university_scoped().
+
+        `local=true` scopes it to the current transaction, which is what makes
+        it safe over Neon's pooled endpoint: a session-level SET would leak to
+        whichever client PgBouncer hands the connection to next.
+
+        The value is the Clerk `sub` from an already-verified token, and it is
+        bound as a parameter -- `SET` cannot take one, which is why this uses
+        set_config() rather than string-building a SET statement.
+        """
+        if db.engine.dialect.name != "postgresql":
+            return                       # SQLite has no row-level security
+        db.session.execute(
+            db.text("SELECT set_config('app.auth_provider_id', :sub, true)"),
+            {"sub": provider_user_id},
+        )
+
+    @staticmethod
     def user_from_request(flask_request):
         """Resolve the request's Clerk session to our own User row.
 
@@ -28,6 +51,9 @@ class AuthService:
         payload = SessionManager.identify(flask_request)
         if not payload or not payload.get("sub"):
             return None
+
+        # Before the first query, so the lookup itself is scoped.
+        AuthService._apply_university_scope(payload["sub"])
 
         user = AuthService.sync_from_provider(payload["sub"])
         if user is None:
