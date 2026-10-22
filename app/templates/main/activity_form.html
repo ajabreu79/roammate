@@ -1,0 +1,185 @@
+{# FR-ACE-001 create an activity, and FR-ACE-005 edit one: the same form.
+   Inputs are named after model columns, so main._activity_fields passes them
+   straight to ActivityService. A finalized field (FR-ACE-008) renders
+   disabled, and a disabled input is not posted, so it cannot be changed.
+   Expects: activity (None when creating), values, locked, activity_types,
+   school_years, genders. #}
+{% extends 'base.html' %}
+
+{% block head %}
+<title>{{ 'Edit ' ~ activity.title if activity else 'New activity' }} - RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/activity.css') }}" />
+{% endblock %}
+
+{% macro lock_note(column) %}{% if column in locked %} <span class="lock">(finalized)</span>{% endif %}{% endmacro %}
+{% macro disabled(column) %}{% if column in locked %}disabled{% endif %}{% endmacro %}
+
+{% block content %}
+<div class="page">
+  <div class="page-head">
+    <h2>{{ 'Edit activity' if activity else 'Create an activity' }}</h2>
+    <div class="actions">
+      <a class="button secondary"
+        href="{{ url_for('main.activity', activity_id=activity.id) if activity else url_for('main.index') }}">Cancel</a>
+    </div>
+  </div>
+
+  {% include 'main/_flashes.html' %}
+
+  <form class="panel" method="post" enctype="multipart/form-data"
+    action="{{ url_for('main.edit_activity', activity_id=activity.id) if activity else url_for('main.new_activity') }}">
+    <div class="form-grid">
+      <div class="field wide">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" required maxlength="200" value="{{ values.title }}" />
+      </div>
+
+      <div class="field wide">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" required maxlength="500">{{ values.description }}</textarea>
+      </div>
+
+      <div class="field">
+        <label for="type_id">Activity type{{ lock_note('type_id') }}</label>
+        <select id="type_id" name="type_id" {{ disabled('type_id') }}>
+          <option value="">Choose a type…</option>
+          {% for type in activity_types %}
+          <option value="{{ type.id }}" {% if values.type_id|string == type.id|string %}selected{% endif %}>{{ type.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="meeting_point">Meeting point{{ lock_note('meeting_point') }}</label>
+        <input type="text" id="meeting_point" name="meeting_point" required maxlength="300"
+          value="{{ values.meeting_point }}" {{ disabled('meeting_point') }} />
+      </div>
+
+      <div class="field">
+        <label for="start_at">Starts{{ lock_note('start_at') }}</label>
+        <input type="datetime-local" id="start_at" name="start_at" required value="{{ values.start_at }}"
+          {{ disabled('start_at') }} />
+      </div>
+
+      <div class="field">
+        <label for="end_at">Ends{{ lock_note('end_at') }}</label>
+        <input type="datetime-local" id="end_at" name="end_at" required value="{{ values.end_at }}"
+          {{ disabled('end_at') }} />
+      </div>
+
+      <div class="field wide">
+        <label>Destinations{{ lock_note('destinations') }}</label>
+        <div id="destinations">
+          {% for text in (values.destinations or ['']) %}
+          <div class="destination-row">
+            <input type="text" name="destination" maxlength="300" value="{{ text }}"
+              aria-label="Destination {{ loop.index }}" {{ disabled('destinations') }} />
+            {% if 'destinations' not in locked %}
+            <button type="button" class="button secondary small" data-remove-destination>Remove</button>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% if 'destinations' not in locked %}
+        <input type="hidden" name="destinations_sent" value="1" />
+        <button type="button" class="button secondary small" id="add-destination">Add destination</button>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label for="budget">Budget per person ($){{ lock_note('budget') }}</label>
+        <input type="number" id="budget" name="budget" min="0" step="0.01" value="{{ values.budget }}"
+          {{ disabled('budget') }} />
+      </div>
+
+      <div class="field">
+        <label for="max_attendees">Max attendees, including you{{ lock_note('max_attendees') }}</label>
+        <input type="number" id="max_attendees" name="max_attendees" min="1" required
+          value="{{ values.max_attendees }}" {{ disabled('max_attendees') }} />
+      </div>
+
+      <div class="field">
+        <label for="min_age">Minimum age{{ lock_note('min_age') }}</label>
+        <input type="number" id="min_age" name="min_age" min="0" value="{{ values.min_age }}"
+          {{ disabled('min_age') }} />
+      </div>
+
+      <div class="field">
+        <label for="max_age">Maximum age{{ lock_note('max_age') }}</label>
+        <input type="number" id="max_age" name="max_age" min="0" value="{{ values.max_age }}"
+          {{ disabled('max_age') }} />
+      </div>
+
+      <div class="field">
+        <label for="min_year">Earliest school year{{ lock_note('min_year') }}</label>
+        <select id="min_year" name="min_year" {{ disabled('min_year') }}>
+          <option value="">Any</option>
+          {% for year in school_years %}
+          <option {% if values.min_year == year %}selected{% endif %}>{{ year }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="max_year">Latest school year{{ lock_note('max_year') }}</label>
+        <select id="max_year" name="max_year" {{ disabled('max_year') }}>
+          <option value="">Any</option>
+          {% for year in school_years %}
+          <option {% if values.max_year == year %}selected{% endif %}>{{ year }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <fieldset class="field wide">
+        <legend>Open to{{ lock_note('allowed_genders') }} <span class="muted">(leave all unticked for everyone)</span></legend>
+        <div class="checks">
+          {% for gender in genders %}
+          <label><input type="checkbox" name="allowed_genders" value="{{ gender }}"
+              {% if gender in values.allowed_genders %}checked{% endif %} {{ disabled('allowed_genders') }} />
+            {{ gender }}</label>
+          {% endfor %}
+        </div>
+        {% if 'allowed_genders' not in locked %}
+        <input type="hidden" name="allowed_genders_sent" value="1" />
+        {% endif %}
+      </fieldset>
+
+      <div class="field wide">
+        <label for="activity_image">Image <span class="muted">(optional)</span></label>
+        <input type="file" id="activity_image" name="activity_image" accept="image/*" />
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="button">{{ 'Save changes' if activity else 'Create activity' }}</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    var list = document.getElementById('destinations');
+    var add = document.getElementById('add-destination');
+    if (!list || !add) return;
+
+    add.addEventListener('click', function () {
+      var row = list.querySelector('.destination-row').cloneNode(true);
+      row.querySelector('input').value = '';
+      list.appendChild(row);
+      row.querySelector('input').focus();
+    });
+
+    list.addEventListener('click', function (event) {
+      if (!event.target.matches('[data-remove-destination]')) return;
+      var rows = list.querySelectorAll('.destination-row');
+      if (rows.length > 1) {
+        event.target.closest('.destination-row').remove();
+      } else {
+        rows[0].querySelector('input').value = '';
+      }
+    });
+  })();
+</script>
+{% endblock %}

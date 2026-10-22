@@ -209,10 +209,13 @@ class AccountDeletionService:
         try:
             providers.CLERK.delete_identity(provider_user_id)
         except providers.ProviderUnavailable:
+            # Undo the uncommitted leaves, so the user keeps every activity.
+            db.session.rollback()
             return ["Account deletion is unavailable right now. Please try again later."], False
         except Exception as error:
             # Removing our row while the Clerk identity survives would let the
             # user sign back in to a hollow account, so refuse instead.
+            db.session.rollback()
             current_app.logger.error("Clerk deletion failed for %s: %s", provider_user_id, error)
             return ["Could not delete your account. Please try again later."], False
 
@@ -225,34 +228,16 @@ class AccountDeletionService:
     def _leave_activities(user):
         """Leave every activity so FR-ACE-007 admin succession runs.
 
-        Returns a list of errors. ParticipationService is not built yet; its
-        absence must not block deletion, but the memberships cannot simply be
-        dropped either -- an activity whose Admin vanishes needs a successor
-        promoted, and only that service knows how. So the memberships are
-        removed by the schema cascade and the gap is logged loudly.
-
-        GAP (FR-ACE-007): until ParticipationService exists, deleting an
-          account that admins an activity leaves that activity with no Admin,
-          which the partial unique index permits (it caps admins at one, it
-          cannot require one).
+        Returns a list of errors. The leaves are not committed here: delete()
+        commits them with the user's removal, or rolls them back if Clerk
+        refuses, so a failed deletion leaves every activity as it was.
         """
-        try:
-            from .participation import ParticipationService
-        except ImportError:
-            admin_count = db.session.execute(
-                db.select(db.func.count())
-                .select_from(model.ActivityMembership)
-                .where(model.ActivityMembership.user_id == user.id,
-                       model.ActivityMembership.role == model.ROLE_ADMIN)
-            ).scalar_one()
-            current_app.logger.warning(
-                "ParticipationService unavailable; deleting user %s leaves %d "
-                "activity/activities without an Admin (FR-ACE-007)",
-                user.id, admin_count,
-            )
-            return []
-        ParticipationService.leave_all(user)
-        return []
+        from .participation import ParticipationService
+
+        errors = ParticipationService.leave_all(user)
+        if errors:
+            db.session.rollback()
+        return errors
 
 
 class DataExportService:

@@ -129,3 +129,21 @@ def register_cli(app):
         from . import universities
         added = universities.seed()
         print(f"{added} universities added.")
+
+    @app.cli.command("seed-activity-types")
+    def seed_activity_types():
+        """FR-ACE-001: fill the ActivityType table from the seed list."""
+        from . import activity_types
+        added = activity_types.seed()
+        print(f"{added} activity types added.")
+
+    @app.cli.command("dispatch-events")
+    def dispatch_events():
+        """NFR-REL-004: deliver committed outbox events to their subscribers.
+
+        Run it on a schedule, or in a loop as a worker; each run delivers
+        whatever is due. Safe to run in several places at once.
+        """
+        from .events import EventBus
+        delivered = EventBus.dispatch_pending()
+        print(f"{delivered} events delivered.")

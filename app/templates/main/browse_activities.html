@@ -1,0 +1,66 @@
+{# FR-AD-002 browse joinable activities with filters; FR-AD-003 the age
+   filter uses the viewer's own age, applied in main.browse_activities.
+   Expects: activities, activity_types, filters (the request's query string). #}
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Browse activities - RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/activity.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-head">
+    <h2>Browse activities</h2>
+    <div class="actions">
+      <a class="button" href="{{ url_for('main.form') }}">Create activity</a>
+    </div>
+  </div>
+
+  {% include 'main/_flashes.html' %}
+
+  <form class="panel filter-bar" method="get" action="{{ url_for('main.browse_activities') }}">
+    <div class="field">
+      <label for="type_id">Type</label>
+      <select id="type_id" name="type_id">
+        <option value="">Any</option>
+        {% for type in activity_types %}
+        <option value="{{ type.id }}" {% if filters.get('type_id') == type.id|string %}selected{% endif %}>{{ type.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="max_budget">Max budget ($)</label>
+      <input type="number" id="max_budget" name="max_budget" min="0" step="1" value="{{ filters.get('max_budget', '') }}" />
+    </div>
+    <div class="field">
+      <label for="start_date">From</label>
+      <input type="date" id="start_date" name="start_date" value="{{ filters.get('start_date', '') }}" />
+    </div>
+    <div class="field">
+      <label for="end_date">To</label>
+      <input type="date" id="end_date" name="end_date" value="{{ filters.get('end_date', '') }}" />
+    </div>
+    <div class="field">
+      <label for="origin">Meeting point</label>
+      <input type="text" id="origin" name="origin" value="{{ filters.get('origin', '') }}" />
+    </div>
+    <div class="field">
+      <label for="destination">Destination</label>
+      <input type="text" id="destination" name="destination" value="{{ filters.get('destination', '') }}" />
+    </div>
+    <button type="submit" class="button">Filter</button>
+    <a class="button secondary" href="{{ url_for('main.browse_activities') }}">Clear</a>
+  </form>
+
+  {% if activities %}
+  <div class="card-grid">
+    {% for activity in activities %}
+    {% include 'main/_activity_card.html' %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No joinable activities match. Try clearing a filter, or create one.</p>
+  {% endif %}
+</div>
+{% endblock %}

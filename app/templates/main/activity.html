@@ -1,0 +1,259 @@
+{# FR-PE-007 activity detail with its member list, FR-MESS-001 message board.
+   Which controls appear depends on `role` and `can(action)` (RolePolicy),
+   but that is only the UI: every POST is checked again by the services
+   (NFR-SECU-004). Actions that remove access ask for confirmation first
+   (NFR-REL-002). #}
+{% extends 'base.html' %}
+
+{% block head %}
+<title>{{ activity.title }} - RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/activity.css') }}" />
+{% endblock %}
+
+{% macro lock(field) %}{% if field in finalized %} <span class="lock">(finalized)</span>{% endif %}{% endmacro %}
+
+{% block content %}
+<div class="page">
+  <div class="page-head">
+    <h2>{{ activity.title }}</h2>
+    <span class="badge {{ activity.status }}">{{ activity.status | replace('_', ' ') | title }}</span>
+    {% if can('edit_fields') and not terminal %}
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('main.edit_activity_form', activity_id=activity.id) }}">Edit</a>
+    </div>
+    {% endif %}
+  </div>
+
+  {% include 'main/_flashes.html' %}
+
+  <div class="activity-layout">
+    <div>
+      <section class="panel">
+        {% if activity.image_key %}
+        <img class="activity-image" src="{{ url_for('static', filename='resources/' ~ activity.image_key) }}" alt="" />
+        {% endif %}
+        <p>{{ activity.description }}</p>
+        <dl class="facts">
+          {% if activity.activity_type %}
+          <dt>Type</dt><dd>{{ activity.activity_type.name }}{{ lock('activity_type') }}</dd>
+          {% endif %}
+          <dt>When</dt>
+          <dd>{{ activity.start_at.strftime('%a %b %d %Y, %I:%M %p') }} &ndash;
+            {{ activity.end_at.strftime('%a %b %d, %I:%M %p') }}{{ lock('dates') }}</dd>
+          <dt>Meet at</dt><dd>{{ activity.meeting_point }}{{ lock('meeting_point') }}</dd>
+          {% if activity.destinations %}
+          <dt>Going to</dt>
+          <dd>{{ activity.destinations | map(attribute='text') | join(' → ') }}{{ lock('destinations') }}</dd>
+          {% endif %}
+          <dt>Budget</dt>
+          <dd>{{ '$%.2f' % activity.budget if activity.budget is not none else 'Not set' }}{{ lock('budget') }}</dd>
+          <dt>Spots</dt>
+          <dd>{{ activity.attendee_count }} of {{ activity.max_attendees }} taken{% if waitlist %},
+            {{ waitlist | length }} waiting{% endif %}{{ lock('max_attendees') }}</dd>
+          {% if activity.min_age is not none or activity.max_age is not none %}
+          <dt>Ages</dt>
+          <dd>{{ activity.min_age if activity.min_age is not none else 'any' }} to
+            {{ activity.max_age if activity.max_age is not none else 'any' }}{{ lock('age_range') }}</dd>
+          {% endif %}
+          {% if activity.min_year or activity.max_year %}
+          <dt>School years</dt>
+          <dd>{{ activity.min_year or 'any' }} to {{ activity.max_year or 'any' }}{{ lock('year_range') }}</dd>
+          {% endif %}
+          {% if activity.allowed_genders %}
+          <dt>Open to</dt><dd>{{ activity.allowed_genders | replace(',', ', ') }}{{ lock('allowed_genders') }}</dd>
+          {% endif %}
+          <dt>Created by</dt><dd>{{ activity.creator_name }}</dd>
+        </dl>
+      </section>
+
+      {# FR-MESS-001 to 006: participants only. #}
+      {% if can('view') %}
+      <section class="panel">
+        <h3>Message board</h3>
+        <nav class="topic-tabs" aria-label="Topics">
+          {% for topic in forum_topics %}
+          <a href="{{ url_for('main.activity', activity_id=activity.id, forum_topic=topic.name) }}"
+            class="{{ 'active' if active_topic and topic.id == active_topic.id }}">{{ topic.name }}</a>
+          {% endfor %}
+        </nav>
+
+        <ul class="messages">
+          {% for message in active_forum_messages %}
+          <li>
+            <div class="meta">{{ message.author_name }} &middot; {{ message.created_at.strftime('%b %d, %I:%M %p') }}</div>
+            <div>{{ message.body }}</div>
+          </li>
+          {% else %}
+          <li class="muted">No messages yet. Say hello!</li>
+          {% endfor %}
+        </ul>
+
+        <form class="stack" method="post" action="{{ url_for('main.new_message', activity_id=activity.id) }}">
+          <input type="hidden" name="forum_topic" value="{{ active_topic.name if active_topic else 'Main' }}" />
+          <div class="field">
+            <label for="message-content">Message</label>
+            <textarea id="message-content" name="message-content" maxlength="500" required></textarea>
+          </div>
+          <div class="field">
+            <label for="new_forum_topic">Or start a new topic <span class="muted">(optional)</span></label>
+            <input type="text" id="new_forum_topic" name="new_forum_topic" maxlength="80" />
+          </div>
+          <button type="submit" class="button">Post</button>
+        </form>
+      </section>
+      {% endif %}
+    </div>
+
+    <div>
+      {# FR-PE-001, 002, 006, 010: what the viewer can do. #}
+      <section class="panel stack">
+        <h3>Your place</h3>
+        {% if role %}
+        <p>You're in, as {{ 'the Admin' if role == 'ADMIN' else 'an Editor' if role == 'EDITOR' else 'an attendee' }}.</p>
+        <form method="post" action="{{ url_for('main.leave_activity', activity_id=activity.id) }}"
+          onsubmit="return confirm('Leave this activity? You will lose access to its message board.');"
+          class="stack">
+          {% if successors %}
+          <div class="field">
+            <label for="successor_id">Hand the Admin role to</label>
+            <select id="successor_id" name="successor_id" required>
+              <option value="">Choose a member…</option>
+              {% for membership in successors %}
+              <option value="{{ membership.user_id }}">{{ membership.user.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          <button type="submit" class="button danger">Leave activity</button>
+        </form>
+
+        {% elif waitlist_position %}
+        <p>You are number {{ waitlist_position }} on the waitlist. You'll be moved in automatically when a spot opens.</p>
+        <form method="post" action="{{ url_for('main.leave_waitlist', activity_id=activity.id) }}">
+          <button type="submit" class="button secondary">Leave waitlist</button>
+        </form>
+
+        {% elif my_request %}
+        <p>Your request to join is waiting for the Admin or an Editor.</p>
+        <form method="post" action="{{ url_for('main.cancel_join_request', activity_id=activity.id) }}">
+          <button type="submit" class="button secondary">Withdraw request</button>
+        </form>
+
+        {% elif activity.status == 'OPEN' %}
+        <form method="post" action="{{ url_for('main.join_activity', activity_id=activity.id) }}">
+          <button type="submit" class="button">{{ 'Join waitlist' if activity.seats_left <= 0 else 'Join activity' }}</button>
+        </form>
+
+        {% elif activity.status == 'APPROVAL_REQUIRED' %}
+        <form method="post" action="{{ url_for('main.request_join_activity', activity_id=activity.id) }}" class="stack">
+          <div class="field">
+            <label for="request_message">Message to the organizers <span class="muted">(optional)</span></label>
+            <textarea id="request_message" name="request_message" maxlength="500"></textarea>
+          </div>
+          <button type="submit" class="button">Request to join</button>
+        </form>
+
+        {% else %}
+        <p class="muted">This activity is not taking new members.</p>
+        {% endif %}
+      </section>
+
+      {# FR-PE-002: pending requests, for the Admin and Editors. #}
+      {% if can('review_requests') and join_requests %}
+      <section class="panel">
+        <h3>Join requests</h3>
+        <ul class="request-list">
+          {% for join_request in join_requests %}
+          <li>
+            <div style="flex-basis:100%">
+              <a href="{{ url_for('main.profile', user_id=join_request.user_id) }}">{{ join_request.user.name }}</a>
+              {% if join_request.message %}<div class="muted">“{{ join_request.message }}”</div>{% endif %}
+            </div>
+            <form class="inline-form" method="post"
+              action="{{ url_for('main.update_join_request', activity_id=activity.id, request_id=join_request.id) }}">
+              <button type="submit" name="approval_status" value="approve" class="button small">Approve</button>
+              <button type="submit" name="approval_status" value="deny" class="button secondary small">Deny</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {# FR-PE-007: everyone in the activity, with the Admin's controls. #}
+      <section class="panel">
+        <h3>Members ({{ members | length }})</h3>
+        <ul class="member-list">
+          {% for membership in members %}
+          <li>
+            <span class="name">
+              <a href="{{ url_for('main.profile', user_id=membership.user_id) }}">{{ membership.user.name }}</a>
+              {% if membership.role != 'ATTENDEE' %}<span class="badge">{{ membership.role | title }}</span>{% endif %}
+            </span>
+            {% if role == 'ADMIN' and membership.role != 'ADMIN' %}
+            {% if membership.role == 'EDITOR' %}
+            <form class="inline-form" method="post"
+              action="{{ url_for('main.revoke_editor', activity_id=activity.id, participant_id=membership.user_id) }}">
+              <button type="submit" class="button secondary small">Remove editor</button>
+            </form>
+            {% else %}
+            <form class="inline-form" method="post"
+              action="{{ url_for('main.make_editor', activity_id=activity.id, participant_id=membership.user_id) }}">
+              <button type="submit" class="button secondary small">Make editor</button>
+            </form>
+            {% endif %}
+            <form class="inline-form" method="post"
+              action="{{ url_for('main.transfer_admin', activity_id=activity.id, participant_id=membership.user_id) }}"
+              onsubmit="return confirm('Make {{ membership.user.name }} the Admin? You will become an Editor.');">
+              <button type="submit" class="button secondary small">Make admin</button>
+            </form>
+            <form class="inline-form" method="post"
+              action="{{ url_for('main.remove_member', activity_id=activity.id, participant_id=membership.user_id) }}"
+              onsubmit="return confirm('Remove {{ membership.user.name }} from this activity?');">
+              <button type="submit" class="button danger small">Remove</button>
+            </form>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      {# FR-ACE-009 status, FR-ACE-008 finalization: Admin and Editors. #}
+      {% if (status_targets or (can('finalize_field') and finalizable)) and not terminal %}
+      <section class="panel stack">
+        <h3>Manage</h3>
+        {% if status_targets %}
+        <form method="post" action="{{ url_for('main.change_status', activity_id=activity.id) }}" class="stack"
+          onsubmit="return this.status.value !== 'CANCELLED' || confirm('Cancel this activity? This cannot be undone.');">
+          <div class="field">
+            <label for="status">Change status</label>
+            <select id="status" name="status">
+              {% for target in status_targets %}
+              <option value="{{ target }}">{{ target | replace('_', ' ') | title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="button secondary">Update status</button>
+        </form>
+        {% endif %}
+
+        {% if can('finalize_field') and finalizable %}
+        <form method="post" action="{{ url_for('main.finalize_fields', activity_id=activity.id) }}" class="stack"
+          onsubmit="return confirm('Finalized fields can never be changed again. Continue?');">
+          <fieldset class="field">
+            <legend>Finalize fields</legend>
+            <div class="checks">
+              {% for field in finalizable %}
+              <label><input type="checkbox" name="field" value="{{ field }}" /> {{ field_labels[field] }}</label>
+              {% endfor %}
+            </div>
+          </fieldset>
+          <button type="submit" class="button secondary">Finalize selected</button>
+        </form>
+        {% endif %}
+      </section>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

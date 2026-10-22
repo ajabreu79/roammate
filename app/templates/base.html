@@ -43,6 +43,15 @@
   {% block scripts %}
   <script src="{{ url_for('static', filename='roammate.js') }}"></script>
   {% endblock %}
+  {# FR-AUTH-008: Clerk's session token lasts about a minute, and only a page
+     running clerk-js renews it. Pages that mount a Clerk component load it
+     themselves and override this block. #}
+  {% block clerk_session %}
+  {% if current_user.is_authenticated %}
+  {% include 'auth/_clerk.html' %}
+  <script src="{{ url_for('static', filename='js/session.js') }}"></script>
+  {% endif %}
+  {% endblock %}
 </body>
 
 </html>

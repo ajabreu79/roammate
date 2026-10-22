@@ -1,0 +1,47 @@
+{# FR-AUTH-008: renews an expired Clerk session token, then returns to
+   `next_url`. Reached from auth.require_authentication; see auth.refresh. #}
+{% extends 'base.html' %}
+
+{% block head %}<title>Checking your sign-in - RoamMate</title>{% endblock %}
+
+{% block content %}
+<div class="main-container">
+    <p role="status">Checking your sign-in&hellip;</p>
+    <noscript><p>Please <a href="{{ url_for('auth.login') }}">log in</a> again.</p></noscript>
+</div>
+{% endblock %}
+
+{# This page loads clerk-js itself, below, so base.html must not load it again. #}
+{% block clerk_session %}{% endblock %}
+
+{% block scripts %}
+{% include 'auth/_clerk.html' %}
+<script>
+  (function () {
+    var next = {{ next_url | tojson }};
+    var signup = {{ url_for('auth.signup') | tojson }};
+    var done = false;
+
+    function go(url) {
+      if (done) return;
+      done = true;
+      window.location.replace(url);
+    }
+
+    // If Clerk cannot be reached, treat the browser as signed out.
+    setTimeout(function () { go(signup); }, 8000);
+
+    window.addEventListener('load', async function () {
+      if (typeof Clerk === 'undefined') return go(signup);
+      try {
+        await Clerk.load();
+        if (!Clerk.session) return go(signup);
+        await Clerk.session.getToken();
+        go(next);
+      } catch (error) {
+        go(signup);
+      }
+    });
+  })();
+</script>
+{% endblock %}
