@@ -5,13 +5,55 @@ these services, and turns the result into a response.
 """
 
 
-from flask import current_app
+import sqlalchemy
+from flask import current_app, g, has_app_context
 
 from . import db
 from . import model
 from . import providers
 from .sessions import SessionManager
 from .validators import RegistrationValidator
+
+
+def _scope_connection(connection, provider_user_id):
+    """Set the RLS identity GUC on one connection's current transaction.
+
+    `local=true` scopes it to that transaction, which is what makes it safe
+    over Neon's pooled endpoint: a session-level SET would leak to whichever
+    client PgBouncer hands the connection to next.
+
+    Bound as a parameter -- `SET` cannot take one, which is why this uses
+    set_config() rather than string-building a SET statement.
+    """
+    if connection.dialect.name != "postgresql":
+        return                           # SQLite has no row-level security
+    connection.execute(
+        db.text("SELECT set_config('app.auth_provider_id', :sub, true)"),
+        {"sub": provider_user_id},
+    )
+
+
+@sqlalchemy.event.listens_for(db.session, "after_begin")
+def _scope_every_transaction(_session, _transaction, connection):
+    """Re-apply the RLS identity at the start of every transaction.
+
+    Because the GUC is transaction-local, a commit discards it -- and a
+    request commits more than once: sync_from_provider commits the synced
+    identity, then anything that reads afterwards runs in a fresh transaction.
+    Applying the scope once per request left those later transactions
+    unscoped, so the policies in migration fa7678e08668 matched no rows and
+    the requester's own row became invisible to them. The first symptom was an
+    ObjectDeletedError the moment Flask-SQLAlchemy refreshed an attribute that
+    the commit had expired.
+
+    Setting it per transaction instead keeps the scope in force for the whole
+    request without ever widening it beyond one transaction.
+    """
+    if not has_app_context():
+        return                           # CLI and migrations are not requests
+    provider_user_id = g.get("auth_provider_id")
+    if provider_user_id:
+        _scope_connection(connection, provider_user_id)
 
 
 class AuthService:
@@ -25,20 +67,17 @@ class AuthService:
         requester's university from this setting, so no query can return
         another university's rows even if it forgets _university_scoped().
 
-        `local=true` scopes it to the current transaction, which is what makes
-        it safe over Neon's pooled endpoint: a session-level SET would leak to
-        whichever client PgBouncer hands the connection to next.
-
-        The value is the Clerk `sub` from an already-verified token, and it is
-        bound as a parameter -- `SET` cannot take one, which is why this uses
-        set_config() rather than string-building a SET statement.
+        The value is the Clerk `sub` from an already-verified token. It is
+        remembered on `g` rather than applied once here, because the setting
+        is transaction-scoped and a request makes several transactions; see
+        _scope_every_transaction for why that matters.
         """
-        if db.engine.dialect.name != "postgresql":
-            return                       # SQLite has no row-level security
-        db.session.execute(
-            db.text("SELECT set_config('app.auth_provider_id', :sub, true)"),
-            {"sub": provider_user_id},
-        )
+        g.auth_provider_id = provider_user_id
+        # A transaction may already be open from an earlier query in this
+        # request, in which case _scope_every_transaction has come and gone
+        # without the identity; scope that one here. Every later transaction
+        # the request opens is the listener's job.
+        _scope_connection(db.session.connection(), provider_user_id)
 
     @staticmethod
     def user_from_request(flask_request):

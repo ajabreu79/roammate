@@ -146,14 +146,62 @@ covers them with 49 tests and no app context.
 
 ## Tests
 
+pytest. The test-only dependencies are separate from the app's, because the
+app does not import them:
+
 ```bash
-.venv/bin/python -m pytest tests -q
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+.venv/bin/python -m pytest
 ```
 
-The suite stubs the Clerk adapter, so it runs without Clerk credentials.
-`tests/test_clerk_adapter.py` additionally asserts that the SDK symbols the
-adapter calls still exist, and `tests/test_clerk_settings.py` covers the
-instance-settings checker.
+`pytest.ini` holds the configuration, so `pytest` with no arguments is the
+whole command: it collects `tests/` and reports line coverage of `app/` to
+the terminal and to `htmlcov/index.html`.
+
+```bash
+.venv/bin/python -m pytest -v                       # one line per test
+.venv/bin/python -m pytest tests/test_auth.py       # one file
+.venv/bin/python -m pytest -k university            # by name
+.venv/bin/python -m pytest -x -q --no-cov           # stop at first failure
+```
+
+The suite needs no credentials, no network and no database server: the Clerk
+adapter is stubbed in `tests/conftest.py` and each test gets a fresh
+in-memory SQLite schema built from the models.
+
+One thing the `app` fixture has to correct deliberately. It holds a single app
+context open for the whole test, and `g` lives on the app context, so Flask
+reuses it for every client request rather than pushing a fresh one -- which
+left Flask-Login's cached user in place between requests and ran the request
+loader once per test instead of once per request. A `teardown_request` hook
+drops that cache so each request re-authenticates the way it does in
+production. Two real bugs were invisible until it did; see the docstring in
+`tests/test_session_contents.py`. `.github/workflows/tests.yml`
+runs it on every push for that reason -- if it ever needs a secret, something
+started reaching the network and should be stubbed instead.
+
+What the files cover:
+
+| File | Covers |
+| --- | --- |
+| `test_auth.py` | registration, the onboarding gate, verification, login, logout, deletion, export |
+| `test_model.py` | the design doc's schema -- tables, derived fields, database-enforced constraints |
+| `test_activity_rules.py` | activity capacity, membership and permission rules |
+| `test_migrations.py` | the migrations apply, downgrade, and describe the models |
+| `test_clerk_adapter.py` | the `clerk-backend-api` symbols the adapter calls still exist |
+| `test_clerk_settings.py` | the instance-settings checker |
+| `test_rls_scope.py` | the RLS identity is in force for every transaction of a request |
+| `test_session_contents.py` | everything cached in the Flask session stays JSON-serialisable |
+
+Two limits worth knowing before relying on the number:
+
+- Coverage of `app/main.py` is low -- the activity and messaging controllers
+  are reached only indirectly. The auth half of the app is covered well.
+- Row-level security is a PostgreSQL feature, so **no test in this suite
+  exercises a policy**: on SQLite the policies are absent and
+  `_scope_connection` returns early. `test_rls_scope.py` pins the wiring that
+  caused the one RLS bug we hit in practice, not the policies themselves.
+  Testing those needs the suite pointed at a throwaway Neon branch.
 
 ## Schema changes
 
@@ -286,6 +334,8 @@ skill in `.claude/skills/`.
   routes and the calendar UI that calls them.
 - `DataExportService` now exports profile, follows, memberships and messages,
   as the design specifies.
+- No test exercises a row-level security policy, because the suite runs on
+  SQLite. See the limits under "Tests".
 - No CSS yet: `roammate.css`, `roammate.js`, `css/signup.css`, `css/login.css`
   and `resources/logo.png` / `logo-full.png` are referenced by the templates
   but not in the repo, so pages render unstyled.
