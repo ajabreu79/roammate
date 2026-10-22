@@ -1,4 +1,9 @@
-{# Loads clerk-js and exposes mountTarget(). The bundle is served from this
+{# FR-AUTH-002: loads Clerk, which owns the credential store, so no password
+   ever reaches this application. Also the delivery vehicle for FR-AUTH-003,
+   FR-AUTH-014, FR-AUTH-015, FR-AUTH-016 and FR-AUTH-018.
+   NFR-SECU-011: only the publishable key is ever sent to the client.
+
+   Loads clerk-js and exposes mountTarget(). The bundle is served from this
    Clerk instance's own Frontend API domain, derived from the publishable key
    in providers.clerk_js_url(). #}
 {% if clerk_enabled and clerk_js_url %}

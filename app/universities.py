@@ -1,9 +1,12 @@
 """University reference data for the registration dropdown (FR-AUTH-013).
 
-A static list keeps registration working without a third-party API. Replace
-`UNIVERSITIES` with a database table or an external feed if the list needs to
-grow past what is reasonable to ship in source.
+The design doc gives University its own table, keyed by (name, country), so
+this list is seed data rather than the source of truth -- queries go to the
+table. Replace the seed with an external feed if the list outgrows source.
 """
+
+from . import db
+from . import model
 
 UNIVERSITIES = [
     ("Case Western Reserve University", "United States"),
@@ -59,30 +62,60 @@ UNIVERSITIES = [
     ("National Autonomous University of Mexico", "Mexico"),
 ]
 
-_NAMES = {name for name, _ in UNIVERSITIES}
+
+
+def seed(session=None):
+    """Insert any seed universities the table is missing. Idempotent."""
+    session = session or db.session
+    existing = {
+        (row.name, row.country)
+        for row in session.execute(db.select(model.University)).scalars()
+    }
+    added = 0
+    for name, country in UNIVERSITIES:
+        if (name, country) not in existing:
+            session.add(model.University(name=name, country=country))
+            added += 1
+    if added:
+        session.commit()
+    return added
 
 
 def countries():
-    return sorted({country for _, country in UNIVERSITIES})
+    query = db.select(model.University.country).distinct().order_by(model.University.country)
+    return list(db.session.execute(query).scalars())
 
 
 def search(query=None, country=None, limit=50):
-    """Names matching a substring query, optionally narrowed to one country."""
-    needle = (query or "").strip().lower()
+    """Universities matching a substring, optionally narrowed to one country.
+
+    FR-AUTH-013. On PostgreSQL the trigram index on University.name serves the
+    ILIKE; on SQLite this is a scan over a short table.
+    """
+    statement = db.select(model.University)
+
+    needle = (query or "").strip()
+    if needle:
+        statement = statement.where(model.University.name.ilike(f"%{needle}%"))
+
     wanted = (country or "").strip()
+    if wanted:
+        statement = statement.where(model.University.country == wanted)
 
-    results = []
-    for name, uni_country in UNIVERSITIES:
-        if wanted and uni_country != wanted:
-            continue
-        if needle and needle not in name.lower():
-            continue
-        results.append({"name": name, "country": uni_country})
+    rows = db.session.execute(
+        statement.order_by(model.University.name).limit(limit)
+    ).scalars()
+    return [{"id": row.id, "name": row.name, "country": row.country} for row in rows]
 
-    results.sort(key=lambda row: row["name"])
-    return results[:limit]
+
+def get_by_name(name):
+    """The University row with this exact name, or None."""
+    if not (name or "").strip():
+        return None
+    query = db.select(model.University).where(model.University.name == name.strip())
+    return db.session.execute(query).scalars().first()
 
 
 def is_known(name):
     """Guard against a hand-crafted POST naming a university we do not list."""
-    return name in _NAMES
+    return get_by_name(name) is not None

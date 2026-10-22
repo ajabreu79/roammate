@@ -195,9 +195,16 @@ _ADAPTERS = {CLERK.name: CLERK}
 
 
 def adapter_for(user_or_name=None):
-    """The adapter that authenticates a given user. Clerk is the only one."""
-    name = getattr(user_or_name, "auth_provider", user_or_name)
-    return _ADAPTERS.get(name, CLERK)
+    """The adapter that authenticates a given user.
+
+    Clerk is the only implementation, so this always resolves to it. It stays
+    as the lookup point because the design doc's extension story is "a new
+    sign-in method is a new adapter" -- a second one registers in _ADAPTERS
+    and is selected here, with no other module changing.
+    """
+    if isinstance(user_or_name, str):
+        return _ADAPTERS.get(user_or_name, CLERK)
+    return CLERK
 
 
 def register_provider(app):

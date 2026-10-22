@@ -1,3 +1,6 @@
+{# Shared layout. FR-AUTH-009: logout is a POST form in the header, reachable
+   from every authenticated page. NFR-SOFT-005: images carry alt text and the
+   logout control is a real button for keyboard operability. #}
 <!DOCTYPE html>
 <html>
 
@@ -21,7 +24,7 @@
       <div class="spacer">
         {% if current_user.is_authenticated %}
         <a href="{{ url_for('main.profile', user_id=current_user.id) }}">
-          <img src="{{ url_for('static', filename='resources/' ~ current_user.profile_pic) }}" alt="Profile"
+          <img src="{{ url_for('static', filename='resources/' ~ current_user.profile_photo) }}" alt="Profile"
             class="header-icon" />
         </a>
         <!-- Logout is POST-only: a GET logout can be triggered by any

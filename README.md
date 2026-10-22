@@ -87,6 +87,33 @@ Three things worth knowing about those values:
   `npx -y clerk@latest users create --email <you>+clerk_test@example.com ...`
   and use verification code `424242`.
 
+## Requirement traceability in the code
+
+Every module tags the SRS requirements it implements inline, so a requirement
+can be traced to code with grep rather than by reading:
+
+```bash
+grep -rn "FR-AUTH-005" app/          # where one requirement is implemented
+grep -rn "GAP" app/                  # every known shortfall, with its requirement
+```
+
+`GAP (<requirement>)` marks a requirement that is only partly met, recorded
+next to the code responsible. `app/main.py` carries 49 of them plus a module
+docstring listing the design-doc deviations that apply to the whole file.
+
+Its routes are still drafted against models `model.py` does not define
+(`ActivityProposal`, `ActivityProposalParticipation`, `ActivityProposalStatus`,
+`ActivityProposalJoinRequest`, `ActivityProposalMessage`, `Meetup`), so they
+raise `AttributeError` at request time. Two tests in `tests/test_auth.py` are
+marked `xfail(strict=True)` for that reason and will start failing — on
+purpose — the moment the Activity model lands.
+
+The rules those routes enforce live in `app/activity_rules.py` instead of
+inline, which is what the design doc specifies (`ActivityValidator`,
+`ActivityStatusMachine`, `RolePolicy`, `EligibilityChecker`) and what makes
+them testable without a database per NFR-SOFT-002. `tests/test_activity_rules.py`
+covers them with 49 tests and no app context.
+
 ## Where each requirement lives
 
 | | Requirement | Where |
@@ -103,6 +130,12 @@ Three things worth knowing about those values:
 | FR-AUTH-010 | Protected routes by default | `auth.require_authentication`, registered via `app.before_request` |
 | FR-AUTH-011 | One click between login and signup | Links in `signup.html` / `login.html`, plus Clerk's own |
 | FR-AUTH-012 | Default and changeable photo | `model.DEFAULT_PROFILE_PIC`; `auth.edit_profile_post` |
+| FR-PROF-002 | Editable profile, minus email/university/birthday | `auth.edit_profile_post` |
+| FR-PROF-003 | Age derived from birthday | `model.age_from_birthday` |
+| FR-ACE-004 | Activity field validation | `activity_rules.ActivityValidator` |
+| FR-ACE-007 | Role permission matrix | `activity_rules.RolePolicy` |
+| FR-ACE-009 | Status transitions | `activity_rules.ActivityStatusMachine` |
+| FR-PE-003…009 | Join eligibility | `activity_rules.EligibilityChecker` |
 | FR-AUTH-013 | Filterable university dropdown | `app/universities.py`, `auth.university_options`, `static/js/signup2.js` |
 | FR-AUTH-014 | Email verification before access | Clerk; gated by `VERIFICATION_EXEMPT` in `auth.require_authentication` |
 | FR-AUTH-015 | Password complexity | `auth_password.*`, asserted by `scripts/check_clerk_config.py` |
@@ -121,14 +154,64 @@ The suite stubs the Clerk adapter, so it runs without Clerk credentials.
 adapter calls still exist, and `tests/test_clerk_settings.py` covers the
 instance-settings checker.
 
+## Schema changes
+
+Managed by Flask-Migrate. The schema is **not** created by `create_all` any
+more, because that creates missing tables and never alters existing ones — a
+model change then fails on a database that already has the old tables.
+
+```bash
+.venv/bin/flask --app app db upgrade                     # apply migrations
+.venv/bin/flask --app app db migrate -m "what changed"   # after editing model.py
+.venv/bin/flask --app app db upgrade                     # then apply it
+.venv/bin/flask --app app seed-universities              # FR-AUTH-013 reference data
+```
+
+Always read the generated migration before applying it; autogenerate misses
+CHECK constraint changes and renames (it sees a rename as a drop plus an add,
+which loses data).
+
+`tests/test_migrations.py` fails if `model.py` and the migrations disagree, so
+a forgotten `db migrate` is caught by the suite rather than in deployment.
+`render_as_batch` is on, which SQLite needs for anything beyond adding a
+column.
+
+The local database is **`instance/roammate.sqlite`** — gitignored, created by
+`db upgrade`.
+
+## Deployment database
+
+The design doc specifies PostgreSQL, and the schema depends on things MySQL
+cannot express directly:
+
+| Feature | Used for | MySQL |
+|---|---|---|
+| Partial unique index | FR-ACE-007 one Admin per activity; FR-PE-002 one pending request | Not supported. Needs a generated column plus a unique index to emulate |
+| Row-level security | NFR-SECU-010 cross-university isolation at the query layer | Not supported |
+| Trigram index | FR-AUTH-013 university search | No equivalent; full-text index is a different trade-off |
+| WAL archiving | NFR-REL-003 one-hour RPO, point-in-time recovery | Binlog-based, different setup |
+
+Set `DATABASE_URL` to a PostgreSQL URL and run `flask db upgrade`. The
+migration already carries `postgresql_where` on each partial index, so they
+are created properly there.
+
 ## Known gaps
 
+- No migrations. See *Schema changes* above.
 - The rate limiter in `app/ratelimit.py` is in-process, so each worker keeps
   its own counter; a multi-worker deployment needs Redis behind it.
 - `AccountDeletionService._leave_activities` expects a `ParticipationService`
-  that does not exist yet; deletion logs a warning and proceeds.
-- `DataExportService` exports the profile only. Follows, memberships and
-  messages appear automatically once those relationships exist on `User`.
+  that does not exist yet, so deleting an account that admins an activity
+  leaves that activity with no Admin (FR-ACE-007). The partial unique index
+  caps admins at one; it cannot require one.
+- Waitlists, invitations, admin succession, real-time messaging, message
+  edit/delete and @mentions have tables but no code.
+- The three `/activity/<id>/meetups` routes reference `model.Meetup`, which
+  does not exist in the design doc's schema and so is not in `model.py`. They
+  raise at request time. Either add a requirement and a table, or remove the
+  routes and the calendar UI that calls them.
+- `DataExportService` now exports profile, follows, memberships and messages,
+  as the design specifies.
 - No CSS yet: `roammate.css`, `roammate.js`, `css/signup.css`, `css/login.css`
   and `resources/logo.png` / `logo-full.png` are referenced by the templates
   but not in the repo, so pages render unstyled.

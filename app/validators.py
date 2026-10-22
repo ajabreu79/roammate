@@ -53,8 +53,8 @@ class RegistrationValidator:
         if birthday > today:
             return None, ["Provided birthday is invalid."]
 
-        age = today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
-        if age < MIN_AGE:
+        # One age calculation for the whole system; see model.age_from_birthday.
+        if model.age_from_birthday(birthday, today) < MIN_AGE:
             return None, [f"You must be at least {MIN_AGE} years old to use this site."]
 
         return birthday, []
@@ -67,26 +67,38 @@ class RegistrationValidator:
         return []
 
     @staticmethod
-    def check_university(university):
-        """FR-AUTH-013: guard against a hand-crafted POST naming anything else."""
-        if not (university or "").strip():
-            return ["Please select your university."]
-        if not universities.is_known(university):
-            return ["Please choose a university from the list."]
-        return []
+    def resolve_university(name):
+        """Return (university, errors) for a submitted university name.
+
+        FR-AUTH-013 / FR-PROF-009: the name has to resolve to a real
+        University row, because its id is the isolation boundary every
+        activity query is scoped by.
+        """
+        if not (name or "").strip():
+            return None, ["Please select your university."]
+        university = universities.get_by_name(name)
+        if university is None:
+            return None, ["Please choose a university from the list."]
+        return university, []
 
     @classmethod
     def validate_profile(cls, gender, school_year, university, birthday_raw, description):
-        """Step 2 of registration (FR-AUTH-001). Returns (errors, birthday)."""
+        """Step 2 of registration (FR-AUTH-001).
+
+        Returns (errors, birthday, university) -- the resolved University row,
+        since the caller needs its id.
+        """
         errors = []
         if not (gender or "").strip():
             errors.append("Please select your gender.")
         if not (school_year or "").strip():
             errors.append("Please select your school year.")
-        errors.extend(cls.check_university(university))
+
+        resolved_university, university_errors = cls.resolve_university(university)
+        errors.extend(university_errors)
 
         birthday, birthday_errors = cls.parse_birthday(birthday_raw)
         errors.extend(birthday_errors)
         errors.extend(cls.check_description(description))
 
-        return errors, birthday
+        return errors, birthday, resolved_university

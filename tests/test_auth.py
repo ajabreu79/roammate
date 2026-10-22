@@ -62,12 +62,19 @@ def test_step_two_collects_the_required_fields(client):
     user = db.session.execute(db.select(model.User)).scalar_one()
     assert user.gender == "Woman"
     assert user.school_year == "Junior"
-    assert user.university == "Case Western Reserve University"
+    assert user.university_name == "Case Western Reserve University"
     assert user.birthday is not None
     assert user.first_name == "Ada" and user.last_name == "Lovelace"
 
 
-def test_home_is_reachable_once_the_profile_is_complete(client):
+def test_the_onboarding_gate_releases_once_the_profile_is_complete(client):
+    """The auth gate stops redirecting; what / renders is the Activity module."""
+    client.post("/auth/signup2", data=complete_profile_form())
+    user = db.session.execute(db.select(model.User)).scalar_one()
+    assert user.profile_complete
+
+
+def test_home_renders(client):
     client.post("/auth/signup2", data=complete_profile_form())
     assert client.get("/").status_code == 200
 
@@ -109,7 +116,7 @@ def test_description_at_the_limit_is_accepted(client):
     client.post("/auth/signup2",
                 data=complete_profile_form(description="x" * MAX_DESC_LENGTH))
     user = db.session.execute(db.select(model.User)).scalar_one()
-    assert len(user.desc) == MAX_DESC_LENGTH
+    assert len(user.description) == MAX_DESC_LENGTH
 
 
 def test_description_over_the_limit_is_rejected(client):
@@ -124,7 +131,9 @@ def test_description_over_the_limit_is_rejected(client):
 def test_profile_picture_defaults_when_none_is_uploaded(client):
     client.post("/auth/signup2", data=complete_profile_form())
     user = db.session.execute(db.select(model.User)).scalar_one()
-    assert user.profile_pic == model.DEFAULT_PROFILE_PIC
+    # The design stores no key and resolves the default on read.
+    assert user.profile_photo_key is None
+    assert user.profile_photo == model.DEFAULT_PROFILE_PIC
 
 
 def test_profile_picture_can_be_changed_later(client):
@@ -136,9 +145,9 @@ def test_profile_picture_can_be_changed_later(client):
     assert response.status_code == 302
 
     user = db.session.execute(db.select(model.User)).scalar_one()
-    assert user.profile_pic != model.DEFAULT_PROFILE_PIC
+    assert user.profile_photo_key is not None
     # Renamed, so two users uploading "me.png" cannot overwrite each other.
-    assert user.profile_pic.endswith(".png") and "me" not in user.profile_pic
+    assert user.profile_photo_key.endswith(".png") and "me" not in user.profile_photo_key
 
 
 def test_non_image_upload_is_rejected(client):
@@ -149,7 +158,7 @@ def test_non_image_upload_is_rejected(client):
     }, content_type="multipart/form-data")
 
     user = db.session.execute(db.select(model.User)).scalar_one()
-    assert user.profile_pic == model.DEFAULT_PROFILE_PIC
+    assert user.profile_photo_key is None
 
 
 # --- FR-AUTH-013 ------------------------------------------------------------
@@ -169,7 +178,7 @@ def test_university_outside_the_list_is_rejected(client):
     client.post("/auth/signup2",
                 data=complete_profile_form(university="Totally Real University"))
     user = db.session.execute(db.select(model.User)).scalar_one()
-    assert user.university is None
+    assert user.university_id is None
 
 
 # --- FR-AUTH-009 ------------------------------------------------------------
@@ -202,21 +211,17 @@ def test_deletion_requires_explicit_confirmation(client, clerk_calls):
     client.post("/auth/signup2", data=complete_profile_form())
     client.post("/auth/account", data={"confirm": "yes"})
 
-    user = db.session.execute(db.select(model.User)).scalar_one()
-    assert not user.is_deleted
+    assert db.session.execute(db.select(model.User)).scalar_one() is not None
     assert clerk_calls["deleted"] == []
 
 
-def test_deletion_removes_the_clerk_identity_and_anonymizes_our_row(client, clerk_calls):
+def test_deletion_removes_the_clerk_identity_and_our_row(client, clerk_calls):
+    """The design's retention rules: the profile row itself goes."""
     client.post("/auth/signup2", data=complete_profile_form())
     client.post("/auth/account", data={"confirm": "DELETE"})
 
     assert clerk_calls["deleted"] == ["user_clerk_1"]
-    user = db.session.execute(db.select(model.User)).scalar_one()
-    assert user.is_deleted
-    assert user.name == model.DELETED_USER_NAME
-    assert user.university is None and user.birthday is None
-    assert "student@case.edu" not in user.email
+    assert db.session.execute(db.select(model.User)).scalars().all() == []
 
 
 def test_deletion_is_refused_when_clerk_rejects_it(client, monkeypatch):
@@ -228,10 +233,9 @@ def test_deletion_is_refused_when_clerk_rejects_it(client, monkeypatch):
     monkeypatch.setattr(providers.ClerkAdapter, "delete_identity", explode)
     client.post("/auth/account", data={"confirm": "DELETE"})
 
-    user = db.session.execute(db.select(model.User)).scalar_one()
-    # Anonymizing locally while the Clerk identity survives would leave a
-    # signed-in user attached to a hollow account.
-    assert not user.is_deleted
+    # Dropping our row while the Clerk identity survives would let the user
+    # sign back in to a hollow account.
+    assert db.session.execute(db.select(model.User)).scalar_one() is not None
 
 
 # --- FR-AUTH-004 ------------------------------------------------------------
@@ -250,7 +254,7 @@ def test_second_clerk_identity_with_the_same_email_reuses_the_row(client, identi
     rows = db.session.execute(db.select(model.User)).scalars().all()
     assert len(rows) == 1
     assert rows[0].id == first.id
-    assert rows[0].clerk_user_id == "user_clerk_2"
+    assert rows[0].auth_provider_id == "user_clerk_2"
 
 
 # --- FR-AUTH-018 ------------------------------------------------------------
@@ -299,13 +303,18 @@ def test_anonymous_pages_render(signed_out, client):
         assert client.get(path).status_code == 200, path
 
 
-def test_authenticated_pages_render(client):
+def test_authenticated_auth_pages_render(client):
     assert client.get("/auth/signup2").status_code == 200
     assert client.get("/auth/password-change").status_code == 200
 
     client.post("/auth/signup2", data=complete_profile_form())
-    for path in ("/", "/auth/edit-profile", "/profile/1"):
-        assert client.get(path).status_code == 200, path
+    assert client.get("/auth/edit-profile").status_code == 200
+
+
+def test_profile_page_renders(client):
+    client.post("/auth/signup2", data=complete_profile_form())
+    user = db.session.execute(db.select(model.User)).scalar_one()
+    assert client.get(f"/profile/{user.id}").status_code == 200
 
 
 def test_pages_render_without_clerk_configured(signed_out, app, client):
@@ -314,3 +323,54 @@ def test_pages_render_without_clerk_configured(signed_out, app, client):
     response = client.get("/auth/login")
     assert response.status_code == 200
     assert b"Sign-in is not configured" in response.data
+
+
+# --- FR-PROF-002 / FR-PROF-003 ----------------------------------------------
+
+def test_birthday_cannot_be_edited_after_registration(client):
+    """FR-PROF-002 and the SRS implementation constraints both forbid it.
+
+    An editable birthday would let a user move out of the 18+ check they
+    already passed (FR-AUTH-005), since age is derived from it (FR-PROF-003).
+    """
+    client.post("/auth/signup2", data=complete_profile_form(birthday="1990-05-04"))
+
+    client.post("/auth/edit-profile", data={"birthday": "2010-01-01"})
+
+    user = db.session.execute(db.select(model.User)).scalar_one()
+    assert user.birthday.isoformat() == "1990-05-04"
+
+
+def test_university_cannot_be_edited_after_registration(client):
+    """FR-PROF-002. University is also the FR-PROF-009 isolation boundary."""
+    client.post("/auth/signup2", data=complete_profile_form())
+
+    client.post("/auth/edit-profile", data={"university": "Stanford University"})
+
+    user = db.session.execute(db.select(model.User)).scalar_one()
+    assert user.university_name == "Case Western Reserve University"
+
+
+def test_editable_profile_fields_still_save(client):
+    """FR-PROF-002 permits gender, school year, description and photo."""
+    client.post("/auth/signup2", data=complete_profile_form())
+
+    client.post("/auth/edit-profile", data={
+        "gender": "Non-binary", "school_year": "Senior", "description": "Updated.",
+    })
+
+    user = db.session.execute(db.select(model.User)).scalar_one()
+    assert (user.gender, user.school_year, user.description) == ("Non-binary", "Senior", "Updated.")
+
+
+def test_age_is_derived_from_birthday(app):
+    """FR-PROF-003: age is computed, not stored."""
+    import datetime
+    from app.model import age_from_birthday
+
+    assert "age" not in model.User.__table__.columns
+
+    today = datetime.date(2026, 10, 21)
+    assert age_from_birthday(datetime.date(2000, 10, 21), today) == 26
+    assert age_from_birthday(datetime.date(2000, 10, 22), today) == 25   # birthday tomorrow
+    assert age_from_birthday(None, today) is None

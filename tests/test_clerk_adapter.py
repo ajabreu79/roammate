@@ -22,6 +22,8 @@ def app():
         "CLERK_SECRET_KEY": "sk_test_stub",
     })
     with application.app_context():
+        from app import db
+        db.create_all()
         yield application
 
 
