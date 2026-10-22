@@ -1,4 +1,5 @@
 import logging
+import os
 from logging.config import fileConfig
 
 from flask import current_app
@@ -22,6 +23,20 @@ def get_engine():
 
 
 def get_engine_url():
+    """The URL migrations run over.
+
+    Prefer DATABASE_URL_UNPOOLED when it is set. Neon's pooled endpoint runs
+    PgBouncer in transaction mode, which does not keep session state, and
+    Alembic needs it: it takes advisory locks, issues multi-statement DDL and
+    relies on SET. Running a migration through the pooler fails in ways that
+    never mention pooling -- a SET search_path that does not survive its own
+    transaction, or a write landing on a connection another client left
+    read-only. The application keeps using the pooled DATABASE_URL.
+    """
+    direct_url = os.environ.get("DATABASE_URL_UNPOOLED")
+    if direct_url:
+        return direct_url.replace('%', '%%')
+
     try:
         return get_engine().url.render_as_string(hide_password=False).replace(
             '%', '%%')
