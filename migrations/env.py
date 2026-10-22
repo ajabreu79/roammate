@@ -4,6 +4,9 @@ from logging.config import fileConfig
 
 from flask import current_app
 
+import sqlalchemy as sa
+from sqlalchemy import pool
+
 from alembic import context
 
 # this is the Alembic Config object, which provides
@@ -106,7 +109,16 @@ def run_migrations_online():
     if conf_args.get("process_revision_directives") is None:
         conf_args["process_revision_directives"] = process_revision_directives
 
-    connectable = get_engine()
+    # The generated template connects with get_engine() -- the application's
+    # engine -- which ignores the URL set above. That matters once the
+    # application connects as the restricted role: migrations then run as a
+    # non-owner and fail with "must be owner of relation users". Build the
+    # connection from the same URL the offline path uses.
+    direct_url = os.environ.get("DATABASE_URL_UNPOOLED")
+    if direct_url:
+        connectable = sa.create_engine(direct_url, poolclass=pool.NullPool)
+    else:
+        connectable = get_engine()
 
     with connectable.connect() as connection:
         context.configure(
