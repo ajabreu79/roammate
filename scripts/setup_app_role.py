@@ -1,7 +1,12 @@
 #!/usr/bin/env python
 """Create the non-owner database role the application connects as.
 
-    APP_DB_PASSWORD=... .venv/bin/python scripts/setup_app_role.py
+    APP_DB_PASSWORD=... .venv/bin/python scripts/setup_app_role.py --write-env
+
+Without --write-env the connection URL is only printed, and DATABASE_URL has
+to be updated by hand. Note that `neon env pull` -- which `neon link` and
+`neon checkout` both run -- resets DATABASE_URL to the owner role, so this
+script needs re-running after a branch switch.
 
 Why this is not a migration: a role needs a password, and a migration file is
 committed. The role is also cluster-level rather than schema-level, so it is
@@ -13,11 +18,12 @@ BYPASSRLS. Connecting as that role makes the policies from migration
 with neither property, so NFR-SECU-010's isolation is enforced by the database
 for application traffic while migrations keep running as the owner.
 
-Idempotent. Prints the connection URL to put in DATABASE_URL; it does not
-write any file.
+Idempotent: re-running rotates the role's password, which invalidates any
+previously issued URL.
 """
 
 import os
+import pathlib
 import sys
 import urllib.parse
 
@@ -46,7 +52,32 @@ READ_ONLY = ("universities", "activity_types", "alembic_version")
 APPEND_ONLY = ("audit_logs",)
 
 
+def write_env(app_url, path=".env"):
+    """Replace DATABASE_URL in `path`, leaving every other line untouched."""
+    import shutil
+
+    target = pathlib.Path(path)
+    if not target.exists():
+        print(f"{path} does not exist; set DATABASE_URL yourself.")
+        return False
+
+    shutil.copyfile(target, f"{path}.bak")
+    lines = target.read_text().splitlines()
+    replaced = False
+    for i, line in enumerate(lines):
+        if line.startswith("DATABASE_URL="):
+            lines[i] = f"DATABASE_URL={app_url}"
+            replaced = True
+    if not replaced:
+        lines.append(f"DATABASE_URL={app_url}")
+
+    target.write_text("\n".join(lines) + "\n")
+    print(f"Updated DATABASE_URL in {path} (previous copy at {path}.bak).")
+    return True
+
+
 def main():
+    write = "--write-env" in sys.argv
     password = os.environ.get("APP_DB_PASSWORD")
     if not password:
         print("APP_DB_PASSWORD is required. Generate one with:")
@@ -107,11 +138,15 @@ def main():
         app_url = (f"postgresql://{ROLE}:{secret}@{pooled.hostname}"
                    f"{pooled.path}?sslmode=require")
         print()
-        print("Set this as DATABASE_URL for application traffic:")
-        print("  " + app_url)
+        if write:
+            write_env(app_url)
+        else:
+            print("Set this as DATABASE_URL for application traffic:")
+            print("  " + app_url)
+            print("  (or re-run with --write-env to have this done for you)")
         print()
-        print("Keep DATABASE_URL_UNPOOLED on the owner role: migrations must")
-        print("run as the owner, which is what makes RLS inert for them.")
+        print("DATABASE_URL_UNPOOLED stays on the owner role: migrations have to")
+        print("bypass RLS, and running as the owner is what lets them.")
     return 0
 
 

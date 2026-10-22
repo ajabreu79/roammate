@@ -227,13 +227,27 @@ separate role:
 
 ```bash
 APP_DB_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))') \
-  .venv/bin/python scripts/setup_app_role.py
+  .venv/bin/python scripts/setup_app_role.py --write-env
 ```
 
-That creates `roammate_app` (no superuser, no BYPASSRLS) with per-table grants
-and prints the URL to use as `DATABASE_URL`. Keep `DATABASE_URL_UNPOOLED` on
-the owner: migrations need to bypass RLS, and that is exactly why they run as
-the owner.
+`APP_DB_PASSWORD` is a **new** secret you generate, not any existing
+credential: the script creates `roammate_app` (no superuser, no BYPASSRLS)
+with that password, grants it per-table access, and `--write-env` points
+`DATABASE_URL` at it. Without the flag the URL is only printed.
+
+Re-running rotates the password, so any URL issued earlier stops working.
+
+**Re-run it after every branch switch.** `neon env pull` — which `neon link`
+and `neon checkout` both perform — resets `DATABASE_URL` to the owner role,
+which silently makes RLS inert because the owner bypasses it. The symptom is
+no error at all, just isolation that is no longer enforced. Check with:
+
+```bash
+psql "$DATABASE_URL" -c 'select current_user, (select rolbypassrls from pg_roles where rolname=current_user)'
+```
+
+`DATABASE_URL_UNPOOLED` stays on the owner: migrations have to bypass RLS, and
+running as the owner is what lets them.
 
 Verified on Neon: the app role sees only its own university's rows, 0 rows with
 the setting unset, and a cross-university `INSERT` is refused by the policy's
