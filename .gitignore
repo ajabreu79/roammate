@@ -9,3 +9,5 @@ node_modules/
 .omc/
 .DS_Store
 instance/*.bak-*
+.neon
+.env.bak

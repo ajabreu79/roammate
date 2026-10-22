@@ -69,3 +69,35 @@ def test_the_pending_request_index_survives_the_migration(migrated_app):
 
     indexes = inspect(db.engine).get_indexes("join_requests")
     assert any(i["name"] == "uq_join_request_pending" and i["unique"] for i in indexes)
+
+
+def test_the_rls_migration_is_a_no_op_on_sqlite(migrated_app):
+    """Row-level security is PostgreSQL-only, so the SQLite path must skip it
+    rather than fail -- the whole suite runs on SQLite."""
+    from sqlalchemy import inspect
+
+    # It applied cleanly (the fixture ran upgrade) and created no extra tables.
+    tables = set(inspect(db.engine).get_table_names())
+    assert len(tables - {"alembic_version"}) == 21
+
+
+def test_all_three_revisions_are_applied(migrated_app):
+    head = db.session.execute(db.text("select version_num from alembic_version")).scalar()
+    assert head == "fa7678e08668"
+
+
+def test_migrations_downgrade_cleanly(tmp_path):
+    """A migration that cannot be reversed is a migration you cannot back out
+    of in a hurry."""
+    from flask_migrate import downgrade, upgrade
+
+    application = create_app({
+        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'down.sqlite'}",
+        "TESTING": True,
+    })
+    with application.app_context():
+        upgrade(directory=str(MIGRATIONS))
+        downgrade(directory=str(MIGRATIONS), revision="base")
+        from sqlalchemy import inspect
+        remaining = set(inspect(db.engine).get_table_names()) - {"alembic_version"}
+        assert remaining == set(), f"tables left behind: {sorted(remaining)}"

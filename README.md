@@ -142,6 +142,7 @@ covers them with 49 tests and no app context.
 | FR-AUTH-016 | Google OAuth | Clerk social connection; `auth.oauth_google_callback` |
 | FR-AUTH-017 | Deletion and GDPR export | `AccountDeletionService`, `DataExportService` |
 | FR-AUTH-018 | Rate limiting | Clerk for sign-in/sign-up; `app/ratelimit.py` for our own endpoints |
+| FR-PROF-009 | Cross-university isolation | `main._university_scoped`, plus RLS policies in migration `4de96d5e2e95` |
 
 ## Tests
 
@@ -179,25 +180,98 @@ column.
 The local database is **`instance/roammate.sqlite`** — gitignored, created by
 `db upgrade`.
 
-## Deployment database
+## Database
 
-The design doc specifies PostgreSQL, and the schema depends on things MySQL
-cannot express directly:
+PostgreSQL on Neon (project **RoamMate**, `curly-tooth-86278910`). The design
+doc specifies PostgreSQL and the schema depends on it: the partial unique
+indexes behind FR-ACE-007's "exactly one Admin" and FR-PE-002's "one pending
+request" have no MySQL equivalent, and neither does the row-level security
+NFR-SECU-010 calls for.
 
-| Feature | Used for | MySQL |
+`neon link` wrote a gitignored `.neon` holding the org, project and branch, so
+branch-scoped CLI commands need no flags. `neon env pull` writes two URLs:
+
+| Variable | Endpoint | Used by |
 |---|---|---|
-| Partial unique index | FR-ACE-007 one Admin per activity; FR-PE-002 one pending request | Not supported. Needs a generated column plus a unique index to emulate |
-| Row-level security | NFR-SECU-010 cross-university isolation at the query layer | Not supported |
-| Trigram index | FR-AUTH-013 university search | No equivalent; full-text index is a different trade-off |
-| WAL archiving | NFR-REL-003 one-hour RPO, point-in-time recovery | Binlog-based, different setup |
+| `DATABASE_URL` | `...-pooler...` | the application; `create_app` reads this |
+| `DATABASE_URL_UNPOOLED` | direct | migrations; `migrations/env.py` prefers it |
 
-Set `DATABASE_URL` to a PostgreSQL URL and run `flask db upgrade`. The
-migration already carries `postgresql_where` on each partial index, so they
-are created properly there.
+That split matters. The pooled endpoint is PgBouncer in transaction mode and
+keeps no session state, while Alembic takes advisory locks, issues
+multi-statement DDL and relies on `SET`. A migration run through the pooler
+fails in ways that never mention pooling.
+
+The driver is **psycopg 3** (`psycopg[binary]`), not psycopg2: SQLAlchemy 2.1
+resolves a bare `postgresql://` URL to psycopg 3, so Neon's connection string
+works without rewriting its scheme.
+
+Leave `DATABASE_URL` unset to fall back to SQLite at
+`instance/roammate.sqlite`. Tests always use in-memory SQLite and never reach
+Neon.
+
+Neon's free tier suspends an idle compute after about 5 minutes; the first
+request afterwards pays a cold start of a few hundred milliseconds. Worth
+warming before a live demo.
+
+### Row-level security (NFR-SECU-010)
+
+Migration `4de96d5e2e95` enables RLS on the 17 university-scoped tables.
+`app_current_university_id()` reads the `app.auth_provider_id` setting, which
+`AuthService._apply_university_scope` publishes per transaction from the
+verified Clerk token, and resolves it to a university. With the setting absent
+no rows are visible, so unauthenticated access fails closed.
+
+**RLS never applies to a table's owner**, and Neon's generated owner role also
+has `BYPASSRLS`. So the policies only bite when the application connects as a
+separate role:
+
+```bash
+APP_DB_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))') \
+  .venv/bin/python scripts/setup_app_role.py --write-env
+```
+
+`APP_DB_PASSWORD` is a **new** secret you generate, not any existing
+credential: the script creates `roammate_app` (no superuser, no BYPASSRLS)
+with that password, grants it per-table access, and `--write-env` points
+`DATABASE_URL` at it. Without the flag the URL is only printed.
+
+Re-running rotates the password, so any URL issued earlier stops working.
+
+**Re-run it after every branch switch.** `neon env pull` — which `neon link`
+and `neon checkout` both perform — resets `DATABASE_URL` to the owner role,
+which silently makes RLS inert because the owner bypasses it. The symptom is
+no error at all, just isolation that is no longer enforced. Check with:
+
+```bash
+psql "$DATABASE_URL" -c 'select current_user, (select rolbypassrls from pg_roles where rolname=current_user)'
+```
+
+`DATABASE_URL_UNPOOLED` stays on the owner: migrations have to bypass RLS, and
+running as the owner is what lets them.
+
+Verified on Neon: the app role sees only its own university's rows, 0 rows with
+the setting unset, and a cross-university `INSERT` is refused by the policy's
+`WITH CHECK`.
+
+`_university_scoped()` in `main.py` stays. It is the application half; RLS is
+what holds when a query forgets to call it.
+
+### Branches
+
+The schema is applied to the `production` branch. For ongoing work prefer a
+branch per developer or per PR, so a migration meets production-like data
+before production does:
+
+```bash
+neon checkout dev --create    # create, pin in .neon, pull its env
+.venv/bin/flask --app app db upgrade
+```
+
+`neon checkout production` switches back. See the `neon-postgres-branches`
+skill in `.claude/skills/`.
 
 ## Known gaps
 
-- No migrations. See *Schema changes* above.
 - The rate limiter in `app/ratelimit.py` is in-process, so each worker keeps
   its own counter; a multi-worker deployment needs Redis behind it.
 - `AccountDeletionService._leave_activities` expects a `ParticipationService`

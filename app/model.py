@@ -22,6 +22,8 @@ from datetime import date, datetime, timezone
 
 import flask_login
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import JSON
 
 from . import db
 from . import activity_rules
@@ -92,6 +94,11 @@ def age_from_birthday(birthday, today=None):
 
 def _uuid_pk():
     return db.Column(db.String(36), primary_key=True, default=new_uuid)
+
+
+# JSONB on PostgreSQL so payloads can be indexed and queried; plain JSON on
+# SQLite, which has no JSONB.
+JSON_TYPE = JSON().with_variant(JSONB, "postgresql")
 
 
 # --- Users and social (design Figure 16) -------------------------------------
@@ -635,7 +642,7 @@ class Notification(db.Model):
     user_id = db.Column(db.String(36), db.ForeignKey("users.id", ondelete="CASCADE"),
                         nullable=False)
     type = db.Column(db.String(60), nullable=False)
-    payload = db.Column(db.JSON)
+    payload = db.Column(JSON_TYPE)
     read_at = db.Column(db.DateTime(timezone=True))
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -655,7 +662,7 @@ class OutboxEvent(db.Model):
 
     id = _uuid_pk()
     type = db.Column(db.String(60), nullable=False)
-    payload = db.Column(db.JSON)
+    payload = db.Column(JSON_TYPE)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
     processed_at = db.Column(db.DateTime(timezone=True))
     attempts = db.Column(db.Integer, default=0, nullable=False)
@@ -695,7 +702,7 @@ class AuditLog(db.Model):
     action = db.Column(db.String(80), nullable=False)
     target_type = db.Column(db.String(60))
     target_id = db.Column(db.String(36))
-    metadata_json = db.Column("metadata", db.JSON)
+    metadata_json = db.Column("metadata", JSON_TYPE)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
     actor = db.relationship("User", foreign_keys=[actor_id])

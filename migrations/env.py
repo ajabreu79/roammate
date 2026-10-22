@@ -1,7 +1,11 @@
 import logging
+import os
 from logging.config import fileConfig
 
 from flask import current_app
+
+import sqlalchemy as sa
+from sqlalchemy import pool
 
 from alembic import context
 
@@ -22,6 +26,20 @@ def get_engine():
 
 
 def get_engine_url():
+    """The URL migrations run over.
+
+    Prefer DATABASE_URL_UNPOOLED when it is set. Neon's pooled endpoint runs
+    PgBouncer in transaction mode, which does not keep session state, and
+    Alembic needs it: it takes advisory locks, issues multi-statement DDL and
+    relies on SET. Running a migration through the pooler fails in ways that
+    never mention pooling -- a SET search_path that does not survive its own
+    transaction, or a write landing on a connection another client left
+    read-only. The application keeps using the pooled DATABASE_URL.
+    """
+    direct_url = os.environ.get("DATABASE_URL_UNPOOLED")
+    if direct_url:
+        return direct_url.replace('%', '%%')
+
     try:
         return get_engine().url.render_as_string(hide_password=False).replace(
             '%', '%%')
@@ -91,7 +109,16 @@ def run_migrations_online():
     if conf_args.get("process_revision_directives") is None:
         conf_args["process_revision_directives"] = process_revision_directives
 
-    connectable = get_engine()
+    # The generated template connects with get_engine() -- the application's
+    # engine -- which ignores the URL set above. That matters once the
+    # application connects as the restricted role: migrations then run as a
+    # non-owner and fail with "must be owner of relation users". Build the
+    # connection from the same URL the offline path uses.
+    direct_url = os.environ.get("DATABASE_URL_UNPOOLED")
+    if direct_url:
+        connectable = sa.create_engine(direct_url, poolclass=pool.NullPool)
+    else:
+        connectable = get_engine()
 
     with connectable.connect() as connection:
         context.configure(

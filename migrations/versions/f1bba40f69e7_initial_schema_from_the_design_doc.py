@@ -7,6 +7,12 @@ Create Date: 2026-10-21 16:46:21.263067
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# JSONB on PostgreSQL so payloads can be indexed; plain JSON on SQLite, which
+# has no JSONB. Must match model.JSON_TYPE or compare_metadata reports drift
+# on PostgreSQL only.
+JSON_TYPE = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 
 # revision identifiers, used by Alembic.
@@ -27,7 +33,7 @@ def upgrade():
     op.create_table('outbox_events',
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('type', sa.String(length=60), nullable=False),
-    sa.Column('payload', sa.JSON(), nullable=True),
+    sa.Column('payload', JSON_TYPE, nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('processed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('attempts', sa.Integer(), nullable=False),
@@ -114,7 +120,7 @@ def upgrade():
     sa.Column('action', sa.String(length=80), nullable=False),
     sa.Column('target_type', sa.String(length=60), nullable=True),
     sa.Column('target_id', sa.String(length=36), nullable=True),
-    sa.Column('metadata', sa.JSON(), nullable=True),
+    sa.Column('metadata', JSON_TYPE, nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['actor_id'], ['users.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
@@ -151,7 +157,7 @@ def upgrade():
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('user_id', sa.String(length=36), nullable=False),
     sa.Column('type', sa.String(length=60), nullable=False),
-    sa.Column('payload', sa.JSON(), nullable=True),
+    sa.Column('payload', JSON_TYPE, nullable=True),
     sa.Column('read_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),

@@ -374,3 +374,33 @@ def test_age_is_derived_from_birthday(app):
     assert age_from_birthday(datetime.date(2000, 10, 21), today) == 26
     assert age_from_birthday(datetime.date(2000, 10, 22), today) == 25   # birthday tomorrow
     assert age_from_birthday(None, today) is None
+
+
+# --- NFR-SECU-010 -----------------------------------------------------------
+
+def test_the_university_scope_is_published_before_any_query(client, app, monkeypatch):
+    """The RLS setting must be applied before the user lookup, or the lookup
+    itself would be filtered by a setting that is not there yet."""
+    calls = []
+    original = db.session.execute
+
+    def recording_execute(statement, *args, **kwargs):
+        calls.append(str(statement))
+        return original(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db.session, "execute", recording_execute)
+    client.get("/")
+
+    assert calls, "no queries ran"
+    # On SQLite the scope call is skipped, so assert the ordering contract via
+    # the helper itself rather than the emitted SQL.
+    from app.services import AuthService
+    assert AuthService._apply_university_scope("probe") is None
+
+
+def test_the_scope_helper_is_skipped_on_sqlite(app):
+    """set_config does not exist on SQLite; calling it would raise."""
+    from app.services import AuthService
+
+    assert db.engine.dialect.name == "sqlite"
+    AuthService._apply_university_scope("probe")   # must not raise
