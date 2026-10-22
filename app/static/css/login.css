@@ -1,0 +1,165 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=DM+Sans:wght@400;500;700&display=swap');
+ 
+:root {
+  --teal-900: #0f3d3e;
+  --teal-700: #1b5e5f;
+  --marigold: #f2b134;
+  --paper: #f7f8f5;
+  --ink: #1b2a2a;
+  --muted: #5b6b6b;
+  --error-bg: #fbeae6;
+  --error-ink: #8f3220;
+  --radius: 16px;
+}
+ 
+* {
+  box-sizing: border-box;
+}
+ 
+body {
+  margin: 0;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+ 
+/* ---------- Layout: info panel on the left, login on the right ---------- */
+ 
+.main-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100vh;
+}
+ 
+/* ---------- Info panel ---------- */
+ 
+.info-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 4rem clamp(2rem, 6vw, 6rem);
+  background: var(--teal-900);
+  color: #fff;
+  border-right: 6px solid var(--marigold);
+}
+ 
+.info-image {
+  width: 150px;
+  height: auto;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: #fff;
+  border-radius: 12px;
+}
+ 
+.info-container h1 {
+  margin: 0;
+  font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+ 
+.info-container p {
+  margin: 0;
+  max-width: 32ch;
+  font-size: 1.15rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+ 
+/* ---------- Login panel ---------- */
+ 
+.login-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+}
+ 
+.login-container h2 {
+  margin: 0 0 0.25rem;
+  font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif;
+  font-size: 2rem;
+  letter-spacing: -0.01em;
+}
+ 
+.login-subtitle {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+}
+ 
+#clerk-sign-in {
+  width: 100%;
+}
+ 
+/* ---------- Flash messages ---------- */
+ 
+.flash-messages {
+  margin-top: 1rem;
+}
+ 
+.flash-message {
+  margin: 0 0 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  background: var(--error-bg);
+  color: var(--error-ink);
+  font-size: 0.95rem;
+}
+ 
+/* ---------- Footer link ---------- */
+ 
+.login-footer {
+  margin: 1.5rem 0 0;
+  color: var(--muted);
+}
+ 
+.login-footer a {
+  color: var(--teal-700);
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+ 
+.login-footer a:hover {
+  color: var(--teal-900);
+}
+ 
+a:focus-visible {
+  outline: 3px solid var(--marigold);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+ 
+/* ---------- Mobile: stack the panels ---------- */
+ 
+@media (max-width: 800px) {
+  .main-container {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+ 
+  .info-container {
+    padding: 2rem 1.5rem;
+    border-right: none;
+    border-bottom: 6px solid var(--marigold);
+  }
+ 
+  .info-image {
+    width: 110px;
+    margin-bottom: 0.5rem;
+  }
+ 
+  .info-container p {
+    font-size: 1rem;
+  }
+ 
+  .login-container {
+    padding: 2rem 1.5rem 3rem;
+  }
+}
