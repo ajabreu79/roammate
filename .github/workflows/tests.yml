@@ -1,0 +1,22 @@
+name: tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      # No secrets and no services: the suite stubs the Clerk adapter and
+      # builds a SQLite database per test, so it must pass in a bare
+      # environment. If this job ever needs a secret, something started
+      # reaching the network and should be stubbed instead.
+      - run: pytest

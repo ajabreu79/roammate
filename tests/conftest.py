@@ -1,6 +1,7 @@
 import datetime
 
 import pytest
+from flask import g
 
 from app import create_app, db as _db, providers, ratelimit, universities
 
@@ -54,6 +55,26 @@ def app(monkeypatch, identity, clerk_calls, tmp_path):
         providers.ClerkAdapter, "delete_identity",
         lambda self, uid: clerk_calls["deleted"].append(uid) or True,
     )
+
+    @application.teardown_request
+    def _reauthenticate_every_request(_exception=None):
+        """Make each client request re-run the request loader.
+
+        This fixture holds one app context open for the whole test, and `g`
+        lives on the app context -- so Flask reuses it for every client
+        request instead of pushing a fresh one, and Flask-Login's cached user
+        (`g._login_user`) survives between them. The loader then ran once per
+        test rather than once per request, which is nothing like production
+        and hid real bugs: `remember_context` was only ever reached on a
+        test's first request, when the profile is still incomplete, so it
+        never stored a value that could fail to serialise.
+
+        teardown_request rather than before_request: a before_request that
+        returns a response short-circuits the rest of the chain, so this
+        would be skipped on exactly the requests require_authentication
+        redirects -- anonymous, unverified, or mid-registration.
+        """
+        g.pop("_login_user", None)
 
     ratelimit.reset()
     with application.app_context():

@@ -11,3 +11,5 @@ node_modules/
 instance/*.bak-*
 .neon
 .env.bak
+.coverage
+htmlcov/
