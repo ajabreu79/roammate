@@ -34,6 +34,77 @@ def test_unlisted_route_is_protected_by_default(signed_out, client):
     assert response.headers["Location"].endswith("/auth/signup")
 
 
+# --- FR-AUTH-008: lapsed Clerk session tokens -------------------------------
+# Clerk's session token lives about a minute. A signed-in browser whose token
+# lapsed arrives looking signed out, but still carries Clerk's __client_uat
+# cookie; it is sent to /auth/refresh to renew and come back, not to sign-up.
+
+def test_lapsed_token_on_a_get_is_sent_to_refresh_and_back(signed_out, client):
+    client.set_cookie("__client_uat_VAihZPV5", "1792696236")
+    response = client.get("/profile/abc?tab=upcoming")
+    assert response.status_code == 302
+    assert response.headers["Location"] == (
+        "/auth/refresh?next=/profile/abc?tab%3Dupcoming")
+
+
+def test_lapsed_token_on_a_post_returns_to_the_form_page(signed_out, client):
+    """The POST itself is not replayed; the browser goes back to the form."""
+    client.set_cookie("__client_uat", "1792696236")
+    response = client.post("/activity", data={"title": "x"},
+                           headers={"Referer": "http://localhost/form"})
+    assert response.headers["Location"] == "/auth/refresh?next=/form"
+    with client.session_transaction() as flask_session:
+        messages = [m for _, m in flask_session.get("_flashes", [])]
+    assert any("wasn't saved" in m for m in messages)
+
+
+def test_offsite_referrer_is_not_a_return_target(signed_out, client):
+    client.set_cookie("__client_uat", "1792696236")
+    response = client.post("/activity", headers={"Referer": "https://evil.example/form"})
+    assert response.headers["Location"] == "/auth/refresh?next=/"
+
+
+def test_signed_out_clerk_client_still_goes_to_signup(signed_out, client):
+    """__client_uat is 0 once Clerk has signed the browser out."""
+    client.set_cookie("__client_uat", "0")
+    assert client.get("/").headers["Location"].endswith("/auth/signup")
+
+
+def test_refresh_gives_up_rather_than_looping(signed_out, client):
+    """A session Clerk renews but this server cannot verify must not loop."""
+    client.set_cookie("__client_uat", "1792696236")
+    locations = [client.get("/").headers["Location"] for _ in range(3)]
+    assert locations[0].startswith("/auth/refresh")
+    assert locations[1].startswith("/auth/refresh")
+    assert locations[2].endswith("/auth/signup")
+
+
+def test_refresh_page_only_returns_to_paths_on_this_site(signed_out, client):
+    for target in ("https://evil.example/", "//evil.example/", "/\\evil.example"):
+        response = client.get("/auth/refresh", query_string={"next": target})
+        assert response.status_code == 200
+        assert b'var next = "/";' in response.data
+
+    response = client.get("/auth/refresh", query_string={"next": "/form"})
+    assert b'var next = "/form";' in response.data
+
+
+def test_refresh_sends_a_signed_in_user_straight_on(client):
+    client.post("/auth/signup2", data=complete_profile_form())
+    response = client.get("/auth/refresh", query_string={"next": "/form"})
+    assert response.headers["Location"] == "/form"
+
+
+def test_signed_in_pages_load_the_session_keeper(client):
+    client.post("/auth/signup2", data=complete_profile_form())
+    assert b"js/session.js" in client.get("/").data
+
+
+def test_clerk_pages_do_not_load_clerk_twice(signed_out, client):
+    """They load clerk-js themselves; base.html's copy would double it."""
+    assert b"js/session.js" not in client.get("/auth/login").data
+
+
 # --- FR-AUTH-014 ------------------------------------------------------------
 
 def test_unverified_user_is_held_at_verification_page(client, identity):

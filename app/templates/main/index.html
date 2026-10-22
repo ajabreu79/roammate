@@ -1,18 +1,50 @@
-{# FR-AD-001 home feed, FR-AD-004 card contents, FR-AD-006 infinite scroll.
-   Currently a placeholder: it renders no activity cards, and main.index
-   cannot supply them until model.ActivityProposal exists. #}
+{# FR-AD-001 home feed, FR-AD-004 card contents. FR-AD-006 infinite scroll
+   is not implemented yet: main.index sends the four newest OPEN activities.
+   Expects: latest_activities, my_activities. #}
 {% extends 'base.html' %}
 
-{% block head %}<title>RoamMate</title>{% endblock %}
+{% block head %}
+<title>RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/activity.css') }}" />
+{% endblock %}
 
 {% block content %}
-<div class="main-container">
+<div class="page">
+  <div class="page-head">
     <h2>Welcome back, {{ current_user.first_name }}</h2>
-    <div class="flash-messages">
-        {% for message in get_flashed_messages() %}
-        <p class="flash-message">{{ message }}</p>
-        {% endfor %}
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('main.browse_activities') }}">Browse</a>
+      <a class="button" href="{{ url_for('main.form') }}">Create activity</a>
     </div>
-    <p><a href="{{ url_for('main.profile', user_id=current_user.id) }}">Your profile</a></p>
+  </div>
+
+  {% include 'main/_flashes.html' %}
+
+  <section class="panel">
+    <h3>Your activities</h3>
+    {% if my_activities %}
+    <div class="card-grid">
+      {% for activity in my_activities %}
+      {% include 'main/_activity_card.html' %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">You haven't joined anything yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h3>New at {{ current_user.university_name }}</h3>
+    {% if latest_activities %}
+    <div class="card-grid">
+      {% for activity in latest_activities %}
+      {% include 'main/_activity_card.html' %}
+      {% endfor %}
+    </div>
+    <p><a href="{{ url_for('main.browse_activities') }}">See everything you can join →</a></p>
+    {% else %}
+    <p class="muted">No open activities yet. Be the first to <a href="{{ url_for('main.form') }}">create one</a>.</p>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}

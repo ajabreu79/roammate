@@ -7,12 +7,14 @@ remain as the landing pages Clerk returns the user to.
 
 import json
 import os
+import time
 import uuid
 from datetime import date
+from urllib.parse import urlsplit
 
 from flask import (
     Blueprint, Response, current_app, flash, jsonify, redirect,
-    render_template, request, url_for,
+    render_template, request, session, url_for,
 )
 import flask_login
 
@@ -37,7 +39,14 @@ PUBLIC_ENDPOINTS = {
     "auth.verify_email",
     "auth.oauth_google_callback",
     "auth.university_options",
+    "auth.refresh",
 }
+
+# How often the gate may send one browser to /auth/refresh before giving up
+# and treating it as signed out, so a session Clerk keeps renewing but this
+# server cannot verify (a wrong secret key, say) never loops.
+REFRESH_LIMIT = 2
+REFRESH_WINDOW_SECONDS = 30
 
 # FR-AUTH-014: an authenticated but unverified user may only reach these --
 # enough to verify, or to leave.
@@ -71,7 +80,20 @@ def require_authentication():
     if not user.is_authenticated:
         if endpoint in PUBLIC_ENDPOINTS:
             return None
+        # FR-AUTH-008: a signed-in user whose minute-long Clerk token has
+        # lapsed looks signed out here. Let clerk-js renew it and come back,
+        # rather than dropping them on the sign-up page.
+        if _clerk_session_may_exist() and _may_refresh():
+            if request.method != "GET":
+                flash("Your sign-in had to be refreshed, so that wasn't saved. "
+                      "Please try again.")
+            return redirect(url_for("auth.refresh", next=_return_target()))
         return redirect(url_for("auth.signup"))
+
+    # Signed in again, so any refresh that led here worked; start counting
+    # afresh. Checked first so an untouched session is not rewritten.
+    if "auth_refreshes" in session:
+        session.pop("auth_refreshes")
 
     if not user.email_verified and endpoint not in VERIFICATION_EXEMPT:
         return redirect(url_for("auth.verification_pending"))
@@ -80,6 +102,52 @@ def require_authentication():
         return redirect(url_for("auth.signup2"))
 
     return None
+
+
+def _clerk_session_may_exist():
+    """Whether the browser says it holds a Clerk session.
+
+    clerk-js keeps a __client_uat cookie (suffixed per instance on newer
+    versions) holding the time the client last signed in, or 0 once signed
+    out. It is not a credential -- nothing is trusted because of it -- only a
+    hint that renewing the session token is worth trying.
+    """
+    return any(name.startswith("__client_uat") and value not in ("", "0")
+               for name, value in request.cookies.items())
+
+
+def _may_refresh():
+    """Count one /auth/refresh round trip; False once the limit is reached."""
+    now = time.time()
+    recent = [t for t in session.get("auth_refreshes", [])
+              if now - t < REFRESH_WINDOW_SECONDS]
+    allowed = len(recent) < REFRESH_LIMIT
+    if allowed:
+        recent.append(now)
+    session["auth_refreshes"] = recent
+    return allowed
+
+
+def _safe_next(target):
+    """`target` if it is a path on this site, else None (no open redirect)."""
+    if not target or not target.startswith("/") or target.startswith(("//", "/\\")):
+        return None
+    return target
+
+
+def _return_target():
+    """Where to go back to once the session token is renewed.
+
+    A GET goes back to itself. A POST cannot be replayed -- re-sending a
+    request that arrived unauthenticated would turn this page into a
+    cross-site request forger -- so it goes back to the page the form was on.
+    """
+    if request.method == "GET":
+        return request.full_path.rstrip("?")
+    referrer = urlsplit(request.referrer or "")
+    if referrer.netloc == request.host and _safe_next(referrer.path):
+        return referrer.path + (f"?{referrer.query}" if referrer.query else "")
+    return url_for("main.index")
 
 
 def _flash_all(messages):
@@ -123,6 +191,20 @@ def login():
     if flask_login.current_user.is_authenticated:
         return redirect(url_for("main.index"))
     return render_template("auth/login.html")
+
+
+@bp.route("/refresh", methods=["GET"])
+def refresh():
+    """FR-AUTH-008: renew an expired Clerk session token, then go back.
+
+    require_authentication sends a browser here when its token has lapsed
+    but Clerk still has a session. The page loads clerk-js, which renews the
+    token and returns to `next`; with no session it goes to sign-up.
+    """
+    target = _safe_next(request.args.get("next")) or url_for("main.index")
+    if flask_login.current_user.is_authenticated:
+        return redirect(target)
+    return render_template("auth/refresh.html", next_url=target)
 
 
 @bp.route("/oauth/google/callback", methods=["GET"])

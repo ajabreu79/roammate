@@ -25,6 +25,20 @@ CANCELLED = "CANCELLED"
 
 MAX_DESCRIPTION_LENGTH = 500
 
+# FR-PE-005: school years in order, so a min/max pair names a range. The same
+# values the registration and profile forms offer.
+SCHOOL_YEARS = ("First year", "Sophomore", "Junior", "Senior", "Graduate")
+
+
+def years_between(min_year=None, max_year=None):
+    """The school years from min_year to max_year inclusive, or None when
+    neither bound is set. An open end runs to the first or last year."""
+    if not min_year and not max_year:
+        return None
+    low = SCHOOL_YEARS.index(min_year) if min_year in SCHOOL_YEARS else 0
+    high = SCHOOL_YEARS.index(max_year) if max_year in SCHOOL_YEARS else len(SCHOOL_YEARS) - 1
+    return list(SCHOOL_YEARS[low:high + 1])
+
 
 class RolePolicy:
     """The FR-ACE-007 permission matrix, exactly as the design doc states it."""
@@ -74,6 +88,11 @@ class ActivityStatusMachine:
     @classmethod
     def is_terminal(cls, status):
         return status in cls.TERMINAL
+
+    @classmethod
+    def targets(cls, status):
+        """The statuses `status` may move to, in a stable order."""
+        return [s for s in cls._TRANSITIONS if s in cls._TRANSITIONS.get(status, set())]
 
     @classmethod
     def is_joinable(cls, status):

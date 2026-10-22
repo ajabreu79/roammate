@@ -1,0 +1,23 @@
+{# FR-AD-004 card contents: image, title, start time, creator, description,
+   meeting point and destinations. Expects `activity`. #}
+<a class="card" href="{{ url_for('main.activity', activity_id=activity.id) }}">
+  {# FR-ACE-001: no image means the standard placeholder. A block rather than
+     model.DEFAULT_ACTIVITY_IMAGE, which is not in the repo yet. #}
+  {% if activity.image_key %}
+  <img src="{{ url_for('static', filename='resources/' ~ activity.image_key) }}" alt="" />
+  {% else %}
+  <div class="image-placeholder" aria-hidden="true">{{ activity.activity_type.name if activity.activity_type else activity.title[:1] }}</div>
+  {% endif %}
+  <div class="body">
+    <h4>{{ activity.title }}</h4>
+    <p><span class="badge {{ activity.status }}">{{ activity.status | replace('_', ' ') | title }}</span>
+      {% if activity.activity_type %}<span class="muted">{{ activity.activity_type.name }}</span>{% endif %}</p>
+    <p>{{ activity.start_at.strftime('%a %b %d, %I:%M %p') }}</p>
+    <p class="muted">By {{ activity.creator_name }} &middot; from {{ activity.meeting_point }}</p>
+    {% if activity.destinations %}
+    <p class="muted">To {{ activity.destinations | map(attribute='text') | join(', ') }}</p>
+    {% endif %}
+    <p>{{ activity.description | truncate(110) }}</p>
+    <p class="muted">{{ activity.attendee_count }} / {{ activity.max_attendees }} going</p>
+  </div>
+</a>

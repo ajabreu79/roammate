@@ -33,6 +33,9 @@
 </div>
 {% endblock %}
 
+{# This page loads clerk-js itself, below, so base.html must not load it again. #}
+{% block clerk_session %}{% endblock %}
+
 {% block scripts %}
 {{ super() }}
 {% include 'auth/_clerk.html' %}

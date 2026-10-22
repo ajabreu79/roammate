@@ -98,15 +98,22 @@ grep -rn "GAP" app/                  # every known shortfall, with its requireme
 ```
 
 `GAP (<requirement>)` marks a requirement that is only partly met, recorded
-next to the code responsible. `app/main.py` carries 49 of them plus a module
-docstring listing the design-doc deviations that apply to the whole file.
+next to the code responsible. `app/main.py` carries 10 of them and
+`app/participation.py` one; each module's docstring lists the design-doc
+deviations that apply to it.
 
-Its routes are still drafted against models `model.py` does not define
-(`ActivityProposal`, `ActivityProposalParticipation`, `ActivityProposalStatus`,
-`ActivityProposalJoinRequest`, `ActivityProposalMessage`, `Meetup`), so they
-raise `AttributeError` at request time. Two tests in `tests/test_auth.py` are
-marked `xfail(strict=True)` for that reason and will start failing — on
-purpose — the moment the Activity model lands.
+The activity and participation routes are thin controllers over the services
+the design specifies:
+
+| Module | Classes |
+|---|---|
+| `app/activities.py` | `ActivityService`, `MembershipManager` |
+| `app/participation.py` | `ParticipationService`, `WaitlistService`, `SuccessionService` |
+| `app/events.py` | `EventBus` (transactional outbox) |
+
+Each public method returns `(errors, result)`, commits once, and locks the
+activity row before writing (NFR-REL-005). `MembershipManager` is the only
+code that writes memberships or `attendee_count`.
 
 The rules those routes enforce live in `app/activity_rules.py` instead of
 inline, which is what the design doc specifies (`ActivityValidator`,
@@ -125,24 +132,30 @@ covers them with 49 tests and no app context.
 | FR-AUTH-005 | No future birthdays, 18+ | `RegistrationValidator.parse_birthday` |
 | FR-AUTH-006 | 500-character description | `RegistrationValidator.check_description` |
 | FR-AUTH-007 | Email + password login | Clerk sign-in component |
-| FR-AUTH-008 | 30-day cookie | `session_settings.maximum_lifetime`; `SessionManager` |
+| FR-AUTH-008 | 30-day cookie | `session_settings.maximum_lifetime`; `SessionManager`; `static/js/session.js` keeps Clerk's minute-long token fresh, and `auth.refresh` renews a lapsed one and returns to the page |
 | FR-AUTH-009 | Manual logout | `auth.logout_post` → `SessionManager.end` (revokes the Clerk session) |
 | FR-AUTH-010 | Protected routes by default | `auth.require_authentication`, registered via `app.before_request` |
 | FR-AUTH-011 | One click between login and signup | Links in `signup.html` / `login.html`, plus Clerk's own |
 | FR-AUTH-012 | Default and changeable photo | `model.DEFAULT_PROFILE_PIC`; `auth.edit_profile_post` |
 | FR-PROF-002 | Editable profile, minus email/university/birthday | `auth.edit_profile_post` |
 | FR-PROF-003 | Age derived from birthday | `model.age_from_birthday` |
-| FR-ACE-004 | Activity field validation | `activity_rules.ActivityValidator` |
-| FR-ACE-007 | Role permission matrix | `activity_rules.RolePolicy` |
-| FR-ACE-009 | Status transitions | `activity_rules.ActivityStatusMachine` |
-| FR-PE-003…009 | Join eligibility | `activity_rules.EligibilityChecker` |
+| FR-ACE-001 | Activity creation and types | `ActivityService.create`; types in `app/activity_types.py` |
+| FR-ACE-004 | Activity field validation | `activity_rules.ActivityValidator`, run over the merged values by `ActivityService.update` |
+| FR-ACE-007 | Role permission matrix | `activity_rules.RolePolicy`; `ActivityService.set_editor` / `transfer_admin`; `SuccessionService` |
+| FR-ACE-008 | One-way finalization | `ActivityService.finalize`; finalized fields render disabled |
+| FR-ACE-009 | Status transitions | `activity_rules.ActivityStatusMachine`; side effects in `ActivityService.apply_status` |
+| FR-PE-001, 002 | Join, request, approve | `ParticipationService.join` / `request_to_join` / `decide_request` |
+| FR-PE-003…009 | Join eligibility | `activity_rules.EligibilityChecker`, applied by `ParticipationService` |
+| FR-PE-006, 010 | Leave, waitlist | `ParticipationService.leave`, `WaitlistService.promote` |
 | FR-AUTH-013 | Filterable university dropdown | `app/universities.py`, `auth.university_options`, `static/js/signup2.js` |
 | FR-AUTH-014 | Email verification before access | Clerk; gated by `VERIFICATION_EXEMPT` in `auth.require_authentication` |
 | FR-AUTH-015 | Password complexity | `auth_password.*`, asserted by `scripts/check_clerk_config.py` |
 | FR-AUTH-016 | Google OAuth | Clerk social connection; `auth.oauth_google_callback` |
-| FR-AUTH-017 | Deletion and GDPR export | `AccountDeletionService`, `DataExportService` |
+| FR-AUTH-017 | Deletion and GDPR export | `AccountDeletionService`, `DataExportService`; activities are left via `ParticipationService.leave_all` |
 | FR-AUTH-018 | Rate limiting | Clerk for sign-in/sign-up; `app/ratelimit.py` for our own endpoints |
 | FR-PROF-009 | Cross-university isolation | `main._university_scoped`, plus RLS policies in migration `4de96d5e2e95` |
+| NFR-REL-004 | Outbox events | `events.EventBus` |
+| NFR-REL-005 | Atomic multi-record changes | `ActivityService.get_visible(lock=True)`, one commit per method |
 
 ## Tests
 
@@ -195,8 +208,10 @@ What the files cover:
 
 Two limits worth knowing before relying on the number:
 
-- Coverage of `app/main.py` is low -- the activity and messaging controllers
-  are reached only indirectly. The auth half of the app is covered well.
+- Nothing in the suite exercises `activities.py`, `participation.py`,
+  `events.py` or the activity routes yet; they were checked by hand-run
+  scripts that are not in the repo. Coverage of those files is near zero.
+  The auth half of the app is covered well.
 - Row-level security is a PostgreSQL feature, so **no test in this suite
   exercises a policy**: on SQLite the policies are absent and
   `_scope_connection` returns early. `test_rls_scope.py` pins the wiring that
@@ -214,7 +229,14 @@ model change then fails on a database that already has the old tables.
 .venv/bin/flask --app app db migrate -m "what changed"   # after editing model.py
 .venv/bin/flask --app app db upgrade                     # then apply it
 .venv/bin/flask --app app seed-universities              # FR-AUTH-013 reference data
+.venv/bin/flask --app app seed-activity-types            # FR-ACE-001 reference data
 ```
+
+Services record domain events (`JoinRequestDecided`, `WaitlistPromoted`, …)
+in the `outbox_events` table in the same transaction as the change.
+`flask --app app dispatch-events` delivers them to subscribers. Nothing
+subscribes yet, so there is no need to run it; events stay queued for the
+Notification module.
 
 Always read the generated migration before applying it; autogenerate misses
 CHECK constraint changes and renames (it sees a rename as a drop plus an add,
@@ -322,20 +344,20 @@ skill in `.claude/skills/`.
 
 - The rate limiter in `app/ratelimit.py` is in-process, so each worker keeps
   its own counter; a multi-worker deployment needs Redis behind it.
-- `AccountDeletionService._leave_activities` expects a `ParticipationService`
-  that does not exist yet, so deleting an account that admins an activity
-  leaves that activity with no Admin (FR-ACE-007). The partial unique index
-  caps admins at one; it cannot require one.
-- Waitlists, invitations, admin succession, real-time messaging, message
-  edit/delete and @mentions have tables but no code.
+- Invitations (FR-PE-011), real-time messaging, message edit/delete and
+  @mentions have tables but no code.
+- Nothing subscribes to the event outbox, so no in-app or email
+  notifications are delivered.
 - The three `/activity/<id>/meetups` routes reference `model.Meetup`, which
   does not exist in the design doc's schema and so is not in `model.py`. They
-  raise at request time. Either add a requirement and a table, or remove the
-  routes and the calendar UI that calls them.
-- `DataExportService` now exports profile, follows, memberships and messages,
-  as the design specifies.
+  raise at request time. No template links to them any more; either add a
+  requirement and a table, or remove the routes.
 - No test exercises a row-level security policy, because the suite runs on
   SQLite. See the limits under "Tests".
-- No CSS yet: `roammate.css`, `roammate.js`, `css/signup.css`, `css/login.css`
-  and `resources/logo.png` / `logo-full.png` are referenced by the templates
-  but not in the repo, so pages render unstyled.
+- Message timestamps display in UTC, while activity times are the
+  wall-clock time the creator typed.
+- Uploaded images are written into `app/static/resources/` and are not
+  gitignored, so test uploads show up in `git status`.
+- `roammate.js`, `resources/logo.png`, `logo-full.png` and the default
+  profile photo `Defaultpfp.png` are referenced but not in the repo, so those
+  requests 404.

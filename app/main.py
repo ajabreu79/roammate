@@ -5,14 +5,17 @@ Every route is tagged with the SRS requirements it implements. Where one is
 only partly met the gap is recorded as a GAP comment beside the code
 responsible rather than left to be rediscovered. Grep "GAP" to list them.
 
+The activity and participation routes are thin controllers: they read the
+form, call one method of ActivityService (app/activities.py) or
+ParticipationService (app/participation.py), and turn its (errors, result)
+into a flash and a redirect. Authorization, validation, row locking and the
+transaction live in those services (NFR-SECU-004, NFR-REL-005).
+
 DESIGN DEVIATIONS that apply to this whole file:
 
-  - Layering. The design specifies Controller -> Service -> Repository per
-    module, with authorization and transaction boundaries in the service layer
-    (NFR-SECU-004, NFR-REL-005). This file holds controllers, business logic
-    and queries together, so there is no layer where a rule is enforced once
-    for every caller. The rules themselves are extracted into
-    app/activity_rules.py, which is as far as that goes without the modules.
+  - Layering. Messaging, discovery and profile routes still hold their
+    queries and rules inline; only activity and participation have moved to
+    the Controller -> Service layering the design specifies.
 
   - Module boundaries. The design splits these routes across five modules
     (Activity, Participation, Messaging, Discover, Profile), each owning its
@@ -22,13 +25,10 @@ DESIGN DEVIATIONS that apply to this whole file:
     /users/{id}/follow, /feed and /browse. This file uses /activity/{id}/join,
     /follow/{id}, /browse_activities, /make_editor/... and /edit_activity/...
 
-  - University scoping is applied by calling _university_scoped explicitly.
-    The design enforces it with a UniversityScope base repository plus
-    PostgreSQL row-level security, so a query cannot opt out.
-
-The schema is now the design doc's (model.py), so entity and field names match
-it: Activity, ActivityMembership with a role enum, FinalizedField rows,
-ForumTopic and Message.
+  - University scoping is applied by ActivityService.get_visible and, for the
+    feed and browse queries, by calling _university_scoped explicitly. The
+    design enforces it with a UniversityScope base repository plus PostgreSQL
+    row-level security, so a query cannot opt out.
 """
 
 import os
@@ -36,25 +36,55 @@ import uuid
 from datetime import datetime
 
 from flask import (
-    Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for,
+    Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request,
+    url_for,
 )
 import flask_login
 
 from sqlalchemy import or_
 from werkzeug.utils import secure_filename
 
+from . import activity_types
 from . import db
 from . import model
-from .activity_rules import (
-    ActivityStatusMachine, ActivityValidator, EligibilityChecker, RolePolicy,
+from .activities import (
+    DEFAULT_FORUM_TOPIC, FIELD_GROUPS, NOT_FOUND, ActivityService, MembershipManager,
 )
+from .activity_rules import SCHOOL_YEARS, ActivityStatusMachine, RolePolicy
+from .participation import JOINED, ParticipationService
 
 bp = Blueprint("main", __name__)
 
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
-# FR-MESS-003: the topic every activity starts with.
-DEFAULT_FORUM_TOPIC = "Main"
+# FR-PE-009: the options the activity form offers, the same ones the profile
+# form offers, so an activity's allowed genders can match a profile.
+GENDER_OPTIONS = ("Woman", "Man", "Non-binary", "Prefer not to say")
+
+# The form posts model column names, so a request maps onto ActivityService
+# without renaming. Destinations and allowed genders are lists.
+_FORM_TEXT_FIELDS = (
+    "title", "description", "meeting_point", "start_at", "end_at", "budget",
+    "max_attendees", "min_age", "max_age", "min_year", "max_year", "type_id",
+)
+
+_FORM_DATETIME = "%Y-%m-%dT%H:%M"
+
+# FR-ACE-008: how each finalizable field is named on the page.
+FIELD_LABELS = {
+    "meeting_point": "Meeting point",
+    "destinations": "Destinations",
+    "dates": "Dates",
+    "budget": "Budget",
+    "max_attendees": "Max attendees",
+    "allowed_genders": "Allowed genders",
+    "activity_type": "Activity type",
+    "age_range": "Age range",
+    "year_range": "School-year range",
+    "status": "Status",
+}
+
+_ROLE_ORDER = {model.ROLE_ADMIN: 0, model.ROLE_EDITOR: 1, model.ROLE_ATTENDEE: 2}
 
 
 # --- shared helpers ----------------------------------------------------------
@@ -86,11 +116,8 @@ def _visible_activity_or_404(activity_id):
     A cross-university id is a 404 rather than a 403, so the response does not
     confirm that the activity exists (NFR-SECU-010).
     """
-    activity = db.session.execute(
-        _university_scoped(db.select(model.Activity).where(model.Activity.id == activity_id))
-    ).scalar_one_or_none()
+    activity = ActivityService.get_visible(activity_id, flask_login.current_user)
     if activity is None:
-        from flask import abort
         abort(404)
     return activity
 
@@ -127,17 +154,94 @@ def _flash_all(messages, category="error"):
         flash(message, category)
 
 
-def _replace_destinations(activity, texts):
-    """FR-ACE-001: destinations are ordered rows, not a joined string.
+def _back(activity_id, errors, success=None):
+    """Turn a service's errors into a response on the activity page.
 
-    Stored per-row so a destination containing a comma survives, and so
-    position is explicit.
+    [NOT_FOUND] is a 404, never a flash, so another university's activity is
+    indistinguishable from a missing one (NFR-SECU-010).
     """
-    activity.destinations.clear()
-    for position, text in enumerate(text.strip() for text in texts):
-        if text:
-            activity.destinations.append(
-                model.ActivityDestination(position=position, text=text))
+    if errors and NOT_FOUND in errors:
+        abort(404)
+    if errors:
+        _flash_all(errors)
+    elif success:
+        flash(success, "success")
+    return redirect(url_for("main.activity", activity_id=activity_id))
+
+
+def _activity_fields(form, files):
+    """The fields a create or edit form posted, as model column names.
+
+    Returns (errors, fields). Only what the form sent is included, so a
+    disabled (finalized) input is left out rather than sent as blank. The two
+    list fields carry a hidden *_sent marker, because a form with every
+    checkbox cleared posts nothing at all for them.
+    """
+    fields = {name: form.get(name) for name in _FORM_TEXT_FIELDS if name in form}
+    if "destinations_sent" in form:
+        fields["destinations"] = form.getlist("destination")
+    if "allowed_genders_sent" in form:
+        fields["allowed_genders"] = ",".join(form.getlist("allowed_genders"))
+
+    upload = files.get("activity_image")
+    if upload and upload.filename:
+        key, errors = _save_activity_image(upload)
+        if errors:
+            return errors, None
+        fields["image_key"] = key
+    return [], fields
+
+
+def _values_from_activity(activity):
+    """An activity's fields in the shape the form template reads."""
+    def text(value):
+        return "" if value is None else str(value)
+
+    return {
+        "title": activity.title,
+        "description": activity.description,
+        "meeting_point": activity.meeting_point,
+        "start_at": activity.start_at.strftime(_FORM_DATETIME),
+        "end_at": activity.end_at.strftime(_FORM_DATETIME),
+        "budget": "" if activity.budget is None else f"{activity.budget:.2f}",
+        "max_attendees": text(activity.max_attendees),
+        "min_age": text(activity.min_age),
+        "max_age": text(activity.max_age),
+        "min_year": text(activity.min_year),
+        "max_year": text(activity.max_year),
+        "type_id": text(activity.type_id),
+        "destinations": [d.text for d in activity.destinations],
+        "allowed_genders": [g.strip() for g in (activity.allowed_genders or "").split(",")
+                            if g.strip()],
+    }
+
+
+def _values_from_form(form, base=None):
+    """What the user typed, over `base`, so a refused form keeps its input."""
+    values = dict(base or {name: "" for name in _FORM_TEXT_FIELDS})
+    values.setdefault("destinations", [])
+    values.setdefault("allowed_genders", [])
+    values.update({name: form.get(name) for name in _FORM_TEXT_FIELDS if name in form})
+    if "destinations_sent" in form:
+        values["destinations"] = form.getlist("destination")
+    if "allowed_genders_sent" in form:
+        values["allowed_genders"] = form.getlist("allowed_genders")
+    return values
+
+
+def _render_form(activity, values, status=200):
+    """The create form (activity=None) or the edit form for `activity`."""
+    finalized = _finalized(activity) if activity else set()
+    locked = {column for column, group in FIELD_GROUPS.items() if group in finalized}
+    return render_template(
+        "main/activity_form.html",
+        activity=activity,
+        values=values,
+        locked=locked,
+        activity_types=activity_types.all_types(),
+        school_years=SCHOOL_YEARS,
+        genders=GENDER_OPTIONS,
+    ), status
 
 
 # --- FR-AD-001 home feed -----------------------------------------------------
@@ -151,12 +255,23 @@ def _replace_destinations(activity, texts):
 @bp.route("/")
 @flask_login.login_required
 def index():
+    user = flask_login.current_user
     query = _university_scoped(
         db.select(model.Activity).where(model.Activity.status == model.STATUS_OPEN)
     ).order_by(model.Activity.created_at.desc()).limit(4)
     latest_activities = db.session.execute(query).scalars().all()
 
-    return render_template("main/index.html", latest_activities=latest_activities)
+    # The viewer's own activities that are still going ahead, soonest first.
+    my_activities = db.session.execute(
+        _university_scoped(db.select(model.Activity))
+        .join(model.ActivityMembership)
+        .where(model.ActivityMembership.user_id == user.id,
+               model.Activity.status.not_in(ActivityStatusMachine.TERMINAL))
+        .order_by(model.Activity.start_at)
+    ).scalars().all()
+
+    return render_template("main/index.html", latest_activities=latest_activities,
+                           my_activities=my_activities)
 
 
 # --- FR-PROF-001 profile -----------------------------------------------------
@@ -182,9 +297,14 @@ def profile(user_id):
         .order_by(model.Activity.start_at.desc())
     ).scalars().all()
 
-    now = model.utcnow()
-    past_activities = [m.activity for m in memberships if m.activity.end_at < now]
-    upcoming_activities = [m.activity for m in memberships if m.activity.end_at >= now]
+    # Activity times are the wall-clock times the creator typed, stored without
+    # a zone (SQLite drops it; see ActivityService._same), so compare them with
+    # local naive time. model.utcnow() is aware and cannot be compared at all.
+    now = datetime.now()
+    past_activities = [m.activity for m in memberships
+                       if m.activity.end_at.replace(tzinfo=None) < now]
+    upcoming_activities = [m.activity for m in memberships
+                           if m.activity.end_at.replace(tzinfo=None) >= now]
 
     if viewer.id == user.id:
         follow_button = None  # viewing their own profile, no follow button
@@ -203,225 +323,132 @@ def profile(user_id):
 
 # --- FR-ACE-001 to 004 activity creation -------------------------------------
 
+# FR-ACE-001 supporting route: renders the activity creation form.
+@bp.route("/form")
+@flask_login.login_required
+def form():
+    return _render_form(None, _values_from_form({}))
+
+
 # FR-ACE-001 create an activity; FR-ACE-002 defaults to OPEN;
-# FR-ACE-003 creator becomes the Admin; FR-ACE-004 field validation.
-# GAP (FR-ACE-001): the form does not yet collect activity type, the school
-#   year range or allowed genders, though the schema has columns for all three.
+# FR-ACE-003 creator becomes the Admin; FR-ACE-004 field validation. All four
+# are ActivityService.create's; a refused form is shown again with its input.
+# GAP (NFR-SECU-008): the image is saved before the activity is validated, so
+#   a refused form can leave an unused image behind.
 @bp.route("/activity", methods=["POST"])
 @flask_login.login_required
 def new_activity():
-    user = flask_login.current_user
-
-    # FR-ACE-004: validate before anything is written, reporting every failure
-    # at once so the form can show them together.
-    errors, cleaned = ActivityValidator.validate(
-        title=request.form.get("title"),
-        description=request.form.get("description"),
-        meeting_point=request.form.get("departure_location"),
-        start=request.form.get("start"),
-        end=request.form.get("end"),
-        budget=request.form.get("budget"),
-        max_members=request.form.get("max_members"),
-        min_age=request.form.get("min"),
-        max_age=request.form.get("max"),
-    )
+    errors, fields = _activity_fields(request.form, request.files)
+    if not errors:
+        errors, activity = ActivityService.create(flask_login.current_user, fields)
     if errors:
         _flash_all(errors)
-        return redirect(url_for("main.form"))
+        return _render_form(None, _values_from_form(request.form), status=400)
 
-    image_key = None
-    upload = request.files.get("activity_image")
-    if upload and upload.filename:
-        image_key, image_errors = _save_activity_image(upload)
-        if image_errors:
-            _flash_all(image_errors)
-            return redirect(url_for("main.form"))
-
-    activity = model.Activity(
-        university_id=user.university_id,
-        creator_id=user.id,
-        title=request.form.get("title").strip(),
-        description=request.form.get("description").strip(),
-        meeting_point=request.form.get("departure_location").strip(),
-        start_at=cleaned["start"],
-        end_at=cleaned["end"],
-        budget=cleaned["budget"],
-        max_attendees=cleaned["max_members"],
-        min_age=cleaned["min_age"],
-        max_age=cleaned["max_age"],
-        image_key=image_key,
-        # FR-ACE-002
-        status=model.STATUS_OPEN,
-        # FR-ACE-003: the creator is the first attendee.
-        attendee_count=1,
-    )
-    db.session.add(activity)
-    _replace_destinations(activity, request.form.getlist("destination"))
-
-    # FR-ACE-003 and FR-MESS-003 in the same transaction as the activity
-    # (NFR-REL-005): an activity with no Admin, or none with a main topic, is
-    # a state the rest of the system does not expect.
-    db.session.add(model.ActivityMembership(
-        activity=activity, user_id=user.id, role=model.ROLE_ADMIN))
-    db.session.add(model.ForumTopic(
-        activity=activity, name=DEFAULT_FORUM_TOPIC, created_by=user.id))
-
-    db.session.commit()
-
+    flash("Activity created.", "success")
     return redirect(url_for("main.activity", activity_id=activity.id))
-
-
-# --- FR-ACE-006 role grants --------------------------------------------------
-
-# FR-ACE-006 grant editor access, to a participant, by the Admin only
-# (FR-ACE-007 via RolePolicy).
-# GAP (NFR-SECU-012): role grants are privileged actions and must be appended
-#   to the audit log. model.AuditLog exists; nothing writes to it yet.
-# GAP (FR-ACE-007): there is no revoke-Editor route, and no transfer-Admin
-#   route -- the latter needs SuccessionService.
-@bp.route("/make_editor/<activity_id>/<participant_id>", methods=["POST"])
-@flask_login.login_required
-def make_editor(activity_id, participant_id):
-    activity = _visible_activity_or_404(activity_id)
-    user = flask_login.current_user
-
-    if not RolePolicy.can(_role_in(activity, user), "grant_editor"):
-        flash("You do not have permission to promote editors for this activity.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    membership = db.session.get(model.ActivityMembership, (activity.id, participant_id))
-    if membership is None:
-        flash("Only a participant of this activity can be made an editor.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    # FR-ACE-007: there is exactly one Admin, so promoting to Editor must not
-    # touch the Admin's own row.
-    if membership.role == model.ROLE_ADMIN:
-        flash("The activity admin cannot be changed to an editor.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    membership.role = model.ROLE_EDITOR
-    db.session.commit()
-    return redirect(url_for("main.activity", activity_id=activity_id))
 
 
 # --- FR-ACE-005, 008, 009 editing --------------------------------------------
 
-# FR-ACE-005 Admin and Editor update non-finalized fields (RolePolicy);
-# FR-ACE-008 finalization is one-way, recorded as FinalizedField rows;
-# FR-ACE-009 status changes run through ActivityStatusMachine.
-# GAP (FR-ACE-004): edits are validated field by field below rather than as a
-#   whole, so a pair that is individually fine but jointly wrong (a new end
-#   before an existing start) is not caught. ActivityValidator should run over
-#   the merged result.
+# FR-ACE-005 the edit form, for Admin and Editors. Finalized fields render
+# disabled, so the browser does not post them (FR-ACE-008).
+@bp.route("/activity/<activity_id>/edit")
+@flask_login.login_required
+def edit_activity_form(activity_id):
+    activity = _visible_activity_or_404(activity_id)
+    if not RolePolicy.can(_role_in(activity, flask_login.current_user), "edit_fields"):
+        flash("You do not have permission to edit this activity.", "error")
+        return redirect(url_for("main.activity", activity_id=activity_id))
+    return _render_form(activity, _values_from_activity(activity))
+
+
+# FR-ACE-005 update non-finalized fields; FR-ACE-004 the merged result is
+# validated as a whole; FR-PE-010 seats added are filled from the waitlist.
 @bp.route("/edit_activity/<activity_id>", methods=["POST"])
 @flask_login.login_required
 def edit_activity(activity_id):
-    activity = _visible_activity_or_404(activity_id)
     user = flask_login.current_user
-    role = _role_in(activity, user)
+    errors, changes = _activity_fields(request.form, request.files)
+    if not errors:
+        errors, result = ActivityService.update(activity_id, user, changes)
+    if errors:
+        if NOT_FOUND in errors:
+            abort(404)
+        _flash_all(errors)
+        activity = _visible_activity_or_404(activity_id)
+        values = _values_from_form(request.form, base=_values_from_activity(activity))
+        return _render_form(activity, values, status=400)
 
-    if ActivityStatusMachine.is_terminal(activity.status):
-        flash("This activity has been finalized or cancelled and cannot be edited.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
+    if result.seats_added:
+        _, promoted = ParticipationService.fill_seats(activity_id, user)
+        if promoted:
+            flash(f"{len(promoted)} from the waitlist joined the new seats.", "success")
 
-    # FR-ACE-005, NFR-SECU-004: Admin and Editor only.
-    if not RolePolicy.can(role, "edit_fields"):
-        flash("You do not have permission to edit this activity.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    finalized = _finalized(activity)
-
-    # FR-ACE-009: run a requested status change through the transition table
-    # rather than assigning whatever the form sent.
-    status = request.form.get("status")
-    if status and status != activity.status:
-        transition_errors = ActivityStatusMachine.check_transition(
-            activity.status, status, role, status_finalized="status" in finalized,
-        )
-        if transition_errors:
-            _flash_all(transition_errors)
-            return redirect(url_for("main.activity", activity_id=activity.id))
-        activity.status = status
-
-        # FR-ACE-009: moving to FINALIZED finalizes every field.
-        if status == model.STATUS_FINALIZED:
-            for field in model.FINALIZABLE_FIELDS:
-                if field not in finalized:
-                    db.session.add(model.FinalizedField(
-                        activity_id=activity.id, field_name=field, finalized_by=user.id))
-            finalized = set(model.FINALIZABLE_FIELDS)
-
-    title = request.form.get("title", "").strip()
-    if title:
-        activity.title = title
-
-    description = request.form.get("description", "").strip()
-    if description:
-        errors = [] if len(description) <= model.MAX_DESCRIPTION_LENGTH else [
-            f"Description must be {model.MAX_DESCRIPTION_LENGTH} characters or fewer."]
-        if errors:
-            _flash_all(errors)
-            return redirect(url_for("main.activity", activity_id=activity_id))
-        activity.description = description
-
-    # Each field is writable only while it is not finalized (FR-ACE-008).
-    meeting_point = request.form.get("departure_location", "").strip()
-    if meeting_point and "meeting_point" not in finalized:
-        activity.meeting_point = meeting_point
-
-    destinations = request.form.getlist("destination")
-    if destinations and "destinations" not in finalized:
-        _replace_destinations(activity, destinations)
-
-    if "dates" not in finalized:
-        errors, cleaned = ActivityValidator.validate(
-            title=activity.title, description=activity.description,
-            meeting_point=activity.meeting_point,
-            start=request.form.get("start"), end=request.form.get("end"),
-        )
-        if request.form.get("start") or request.form.get("end"):
-            if errors:
-                _flash_all(errors)
-                return redirect(url_for("main.activity", activity_id=activity_id))
-            activity.start_at = cleaned["start"]
-            activity.end_at = cleaned["end"]
-
-    if "budget" not in finalized and request.form.get("budget"):
-        activity.budget = request.form.get("budget")
-
-    if "max_attendees" not in finalized and request.form.get("max_members"):
-        # The schema caps attendee_count at max_attendees, so shrinking below
-        # the current roster is rejected by the database rather than silently
-        # leaving the activity over capacity.
-        activity.max_attendees = request.form.get("max_members")
-
-    if "age_range" not in finalized:
-        if request.form.get("min_age"):
-            activity.min_age = request.form.get("min_age")
-        if request.form.get("max_age"):
-            activity.max_age = request.form.get("max_age")
-
-    # FR-ACE-008: finalizing is one-way and needs the finalize permission. A
-    # row's presence is the fact, so there is no way to un-finalize by
-    # omitting a checkbox -- which the previous boolean columns allowed.
-    if RolePolicy.can(role, "finalize_field"):
-        for field in model.FINALIZABLE_FIELDS:
-            if f"{field}_finalized" in request.form and field not in finalized:
-                db.session.add(model.FinalizedField(
-                    activity_id=activity.id, field_name=field, finalized_by=user.id))
-
-    upload = request.files.get("activity_image")
-    if upload and upload.filename:
-        key, image_errors = _save_activity_image(upload)
-        if image_errors:
-            _flash_all(image_errors)
-            return redirect(url_for("main.activity", activity_id=activity_id))
-        activity.image_key = key
-
-    db.session.commit()
-
+    flash("Activity updated.", "success")
     return redirect(url_for("main.activity", activity_id=activity_id))
+
+
+# FR-ACE-009 status changes through the transition table, with its side
+# effects (pending requests denied, waitlist cleared, every field finalized).
+@bp.route("/activity/<activity_id>/status", methods=["POST"])
+@flask_login.login_required
+def change_status(activity_id):
+    errors, _ = ActivityService.change_status(
+        activity_id, flask_login.current_user, request.form.get("status"))
+    return _back(activity_id, errors, "Status updated.")
+
+
+# FR-ACE-008 finalize fields, one-way.
+@bp.route("/activity/<activity_id>/finalize", methods=["POST"])
+@flask_login.login_required
+def finalize_fields(activity_id):
+    names = request.form.getlist("field")
+    if not names:
+        return _back(activity_id, ["Choose at least one field to finalize."])
+
+    errors, added = ActivityService.finalize(activity_id, flask_login.current_user, names)
+    finalized = ", ".join(FIELD_LABELS.get(name, name) for name in added or [])
+    return _back(activity_id, errors, f"Finalized: {finalized}." if finalized else None)
+
+
+# --- FR-ACE-006, 007 roles ---------------------------------------------------
+
+# FR-ACE-006 grant or revoke Editor, Admin only. Audit-logged (NFR-SECU-012).
+@bp.route("/make_editor/<activity_id>/<participant_id>", methods=["POST"])
+@flask_login.login_required
+def make_editor(activity_id, participant_id):
+    errors, _ = ActivityService.set_editor(
+        activity_id, flask_login.current_user, participant_id, grant=True)
+    return _back(activity_id, errors, "Editor access granted.")
+
+
+@bp.route("/revoke_editor/<activity_id>/<participant_id>", methods=["POST"])
+@flask_login.login_required
+def revoke_editor(activity_id, participant_id):
+    errors, _ = ActivityService.set_editor(
+        activity_id, flask_login.current_user, participant_id, grant=False)
+    return _back(activity_id, errors, "Editor access removed.")
+
+
+# FR-ACE-007 hand the Admin role to another member; the old Admin becomes an
+# Editor.
+@bp.route("/activity/<activity_id>/transfer_admin/<participant_id>", methods=["POST"])
+@flask_login.login_required
+def transfer_admin(activity_id, participant_id):
+    errors, _ = ActivityService.transfer_admin(
+        activity_id, flask_login.current_user, participant_id)
+    return _back(activity_id, errors, "You handed over the Admin role.")
+
+
+# FR-ACE-007 remove a member, Admin only; the freed seat is filled from the
+# waitlist (FR-PE-010).
+@bp.route("/activity/<activity_id>/remove/<participant_id>", methods=["POST"])
+@flask_login.login_required
+def remove_member(activity_id, participant_id):
+    errors, _ = ParticipationService.remove_member(
+        activity_id, flask_login.current_user, participant_id)
+    return _back(activity_id, errors, "Member removed.")
 
 
 # --- FR-PE-007, FR-MESS-001 activity detail and board ------------------------
@@ -436,7 +463,6 @@ def activity(activity_id, forum_topic=None):
     activity = _visible_activity_or_404(activity_id)
     user = flask_login.current_user
     role = _role_in(activity, user)
-    already_joined = role is not None
 
     join_requests = []
     if RolePolicy.can(role, "review_requests"):
@@ -447,13 +473,40 @@ def activity(activity_id, forum_topic=None):
             .order_by(model.JoinRequest.created_at.asc())
         ).scalars().all()
 
+    my_request = db.session.execute(
+        db.select(model.JoinRequest).where(
+            model.JoinRequest.activity_id == activity.id,
+            model.JoinRequest.user_id == user.id,
+            model.JoinRequest.status == model.REQUEST_PENDING)
+    ).scalar_one_or_none()
+
+    # FR-PE-010: position is computed from created_at, never stored.
+    waitlist = sorted(activity.waitlist, key=lambda e: (e.created_at, e.user_id))
+    waitlist_position = next(
+        (i for i, entry in enumerate(waitlist, start=1) if entry.user_id == user.id), None)
+
+    members = sorted(activity.memberships,
+                     key=lambda m: (_ROLE_ORDER.get(m.role, 9), m.joined_at))
+
+    # FR-ACE-007: an Admin leaving while others remain names a successor.
+    successors = (MembershipManager.others(activity, user.id)
+                  if role == model.ROLE_ADMIN else [])
+
+    finalized = _finalized(activity)
+    status_targets = [
+        target for target in ActivityStatusMachine.targets(activity.status)
+        if RolePolicy.can(role, "cancel" if target == model.STATUS_CANCELLED
+                          else "change_status")
+    ] if "status" not in finalized else []
+
     # FR-MESS-004: the board is for participants only.
     forum_topics = []
     active_topic = None
     active_forum_messages = []
 
     if RolePolicy.can(role, "view"):
-        forum_topics = list(activity.topics)
+        forum_topics = sorted(activity.topics, key=lambda t: (t.name != DEFAULT_FORUM_TOPIC,
+                                                               t.created_at))
         wanted = forum_topic or DEFAULT_FORUM_TOPIC
         active_topic = next((t for t in forum_topics if t.name == wanted), None)
         if active_topic is None and forum_topics:
@@ -468,225 +521,93 @@ def activity(activity_id, forum_topic=None):
     return render_template(
         "main/activity.html",
         activity=activity,
-        statuses=model.STATUSES,
         # FR-ACE-007: the template needs the role to decide which controls to
-        # show. The server-side checks above remain the access control
-        # (NFR-SECU-004); this only drives the UI.
+        # show. The services remain the access control (NFR-SECU-004); this
+        # only drives the UI.
         role=role,
-        finalized=_finalized(activity),
-        members=activity.memberships,
+        can=lambda action: RolePolicy.can(role, action),
+        finalized=finalized,
+        finalizable=[f for f in model.FINALIZABLE_FIELDS if f not in finalized],
+        field_labels=FIELD_LABELS,
+        status_targets=status_targets,
+        terminal=ActivityStatusMachine.is_terminal(activity.status),
+        members=members,
+        successors=successors,
         join_requests=join_requests,
-        already_joined=already_joined,
+        my_request=my_request,
+        waitlist=waitlist,
+        waitlist_position=waitlist_position,
         forum_topics=forum_topics,
         active_topic=active_topic,
         active_forum_messages=active_forum_messages,
     )
 
 
-# --- FR-PE-001 to 009 joining ------------------------------------------------
+# --- FR-PE-001 to 010 joining, requests and leaving --------------------------
 
-def _eligibility_errors(activity, user):
-    """FR-PE-003 to 009 and FR-PROF-009, in one place for join and approval."""
-    return EligibilityChecker.check(
-        status=activity.status,
-        already_member=_role_in(activity, user) is not None,
-        attendee_count=activity.attendee_count,
-        max_members=activity.max_attendees,
-        viewer_age=user.age,
-        min_age=activity.min_age,
-        max_age=activity.max_age,
-        viewer_school_year=user.school_year,
-        allowed_years=None if not activity.min_year else [activity.min_year, activity.max_year],
-        viewer_gender=user.gender,
-        allowed_genders=([g.strip() for g in activity.allowed_genders.split(",")]
-                         if activity.allowed_genders else None),
-        viewer_university=user.university_id,
-        activity_university=activity.university_id,
-    )
-
-
-# FR-PE-001 join an OPEN activity. FR-PE-003, 004, 005, 008, 009 and
-# FR-PROF-009 are all enforced by EligibilityChecker, which reports every
-# failed rule rather than the first.
-# GAP (FR-PE-010): a full activity should offer the waitlist. model.WaitlistEntry
-#   exists but nothing writes to it, so this reports an error instead.
-# GAP (NFR-REL-005): the capacity check and the attendee_count increment are
-#   not under a row lock, so two users can still race for the last seat. The
-#   schema's attendee_count <= max_attendees CHECK makes the loser's commit
-#   fail rather than letting the count go wrong, which is a backstop, not the
-#   fix. The design locks the activity row first.
-# GAP (FR-PE-005): allowed_years is approximated from min_year/max_year as a
-#   two-element list, which only works when they name adjacent years. A
-#   year ordering is needed to compare ranges properly.
+# FR-PE-001 join an OPEN activity, or its waitlist when full (FR-PE-010).
+# Eligibility (FR-PE-003 to 009, FR-PROF-009) and the row lock that stops two
+# people taking the last seat (NFR-REL-005) are ParticipationService.join's.
 @bp.route("/activity/<activity_id>/join", methods=["POST"])
 @flask_login.login_required
 def join_activity(activity_id):
-    activity = _visible_activity_or_404(activity_id)
-    user = flask_login.current_user
+    errors, outcome = ParticipationService.join(activity_id, flask_login.current_user)
+    return _back(activity_id, errors,
+                 "You joined the activity!" if outcome == JOINED
+                 else "The activity is full, so you are on the waitlist.")
 
-    # FR-PE-001 vs FR-PE-002: only OPEN admits a member without approval.
-    if not ActivityStatusMachine.accepts_direct_join(activity.status):
-        flash("This activity is not open for joining.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
 
-    errors = _eligibility_errors(activity, user)
-    if errors:
-        _flash_all(errors)
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    db.session.add(model.ActivityMembership(
-        activity_id=activity.id, user_id=user.id, role=model.ROLE_ATTENDEE))
-    activity.attendee_count += 1
-    db.session.commit()
-
-    flash("Successfully joined the activity!", "success")
-    return redirect(url_for("main.activity", activity_id=activity_id))
+# FR-PE-010 give up a place on the waitlist.
+@bp.route("/activity/<activity_id>/leave_waitlist", methods=["POST"])
+@flask_login.login_required
+def leave_waitlist(activity_id):
+    errors, _ = ParticipationService.leave_waitlist(activity_id, flask_login.current_user)
+    return _back(activity_id, errors, "You left the waitlist.")
 
 
 # FR-PE-002 request to join an APPROVAL_REQUIRED activity, with an optional
-# message to the current attendees.
-# GAP (FR-PE-002): no notification is published. The design emits
-#   JoinRequestCreated to the Admin and Editors. model.Notification and
-#   model.OutboxEvent exist; nothing writes to them yet.
+# message to the Admin and Editors.
 @bp.route("/activity/<activity_id>/request_join", methods=["POST"])
 @flask_login.login_required
 def request_join_activity(activity_id):
-    activity = _visible_activity_or_404(activity_id)
-    user = flask_login.current_user
-
-    errors = _eligibility_errors(activity, user)
-    if errors:
-        _flash_all(errors)
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    # FR-PE-002: one outstanding request per user, which the partial unique
-    # index also enforces.
-    existing = db.session.execute(
-        db.select(model.JoinRequest).where(
-            model.JoinRequest.activity_id == activity.id,
-            model.JoinRequest.user_id == user.id,
-            model.JoinRequest.status == model.REQUEST_PENDING)
-    ).scalar_one_or_none()
-    if existing:
-        flash("You already have a pending request for this activity.", "info")
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    message = (request.form.get("request_message") or "").strip() or None
-    if message and len(message) > model.MAX_DESCRIPTION_LENGTH:
-        flash(f"Your message must be {model.MAX_DESCRIPTION_LENGTH} characters or fewer.",
-              "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    db.session.add(model.JoinRequest(
-        activity_id=activity.id, user_id=user.id, message=message))
-    db.session.commit()
-
-    return redirect(url_for("main.activity", activity_id=activity_id))
+    errors, _ = ParticipationService.request_to_join(
+        activity_id, flask_login.current_user, request.form.get("request_message"))
+    return _back(activity_id, errors, "Your request was sent.")
 
 
-# FR-PE-002 approve or deny, Admin and Editor only (FR-ACE-007);
-# FR-PE-004 eligibility is re-checked at approval time.
-# GAP (FR-PE-002): the decision is recorded but not delivered. The design
-#   emits JoinRequestDecided to the requester, in-app and by email.
-@bp.route("/activity/<activity_id>/update_join_request/<requesting_user_id>", methods=["POST"])
+# FR-PE-002 approve or deny, Admin and Editor only (FR-ACE-007); eligibility
+# is re-checked at approval time.
+@bp.route("/activity/<activity_id>/update_join_request/<request_id>", methods=["POST"])
 @flask_login.login_required
-def update_join_request(activity_id, requesting_user_id):
-    activity = _visible_activity_or_404(activity_id)
-    user = flask_login.current_user
-
-    if not RolePolicy.can(_role_in(activity, user), "review_requests"):
-        flash("You do not have permission to manage join requests for this activity.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    join_request = db.session.execute(
-        db.select(model.JoinRequest).where(
-            model.JoinRequest.activity_id == activity.id,
-            model.JoinRequest.user_id == requesting_user_id,
-            model.JoinRequest.status == model.REQUEST_PENDING)
-    ).scalar_one_or_none()
-    if not join_request:
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    action = request.form.get("approval_status")
-
-    if action == "approve":
-        # FR-PE-004: re-check now, not when the request was made. Seats may
-        # have gone, or the requester's eligibility may have changed, while it
-        # waited.
-        requesting_user = db.get_or_404(model.User, requesting_user_id)
-        errors = _eligibility_errors(activity, requesting_user)
-        if errors:
-            _flash_all(errors)
-            return redirect(url_for("main.activity", activity_id=activity_id))
-
-        db.session.add(model.ActivityMembership(
-            activity_id=activity.id, user_id=requesting_user_id, role=model.ROLE_ATTENDEE))
-        activity.attendee_count += 1
-        join_request.status = model.REQUEST_APPROVED
-    else:
-        join_request.status = model.REQUEST_DENIED
-
-    # FR-PE-002: the row is kept with its decision rather than deleted, so the
-    # requester can be told and the decision is auditable.
-    join_request.reviewed_by = user.id
-    join_request.decided_at = model.utcnow()
-    db.session.commit()
-
-    return redirect(url_for("main.activity", activity_id=activity_id))
+def update_join_request(activity_id, request_id):
+    approve = request.form.get("approval_status") == "approve"
+    errors, _ = ParticipationService.decide_request(
+        activity_id, flask_login.current_user, request_id, approve)
+    return _back(activity_id, errors, "Request approved." if approve else "Request denied.")
 
 
 # FR-PE-002 supporting route: withdraw one's own pending request.
 @bp.route("/activity/<activity_id>/cancel_join", methods=["POST"])
 @flask_login.login_required
 def cancel_join_request(activity_id):
-    activity = _visible_activity_or_404(activity_id)
-    user = flask_login.current_user
-
-    existing = db.session.execute(
-        db.select(model.JoinRequest).where(
-            model.JoinRequest.activity_id == activity.id,
-            model.JoinRequest.user_id == user.id,
-            model.JoinRequest.status == model.REQUEST_PENDING)
-    ).scalar_one_or_none()
-    if not existing:
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    db.session.delete(existing)
-    db.session.commit()
-
-    return redirect(url_for("main.activity", activity_id=activity_id))
+    errors, _ = ParticipationService.withdraw_request(activity_id, flask_login.current_user)
+    return _back(activity_id, errors, "Your request was withdrawn.")
 
 
-# FR-PE-006 leave an activity, whatever the member's role.
-# GAP (FR-ACE-007): an Admin leaving must name a successor from the roster,
-#   and the earliest-joined member is promoted when none is chosen. Neither
-#   happens here, so an Admin is refused instead -- which FR-PE-006 does not
-#   allow. This needs SuccessionService; the schema is ready for it
-#   (ActivityMembership.joined_at is indexed for exactly this).
-# GAP (FR-PE-006): leaving as the only member must cancel the activity.
-# GAP (FR-PE-010): a freed seat must draw from the waitlist, first-come
-#   first-served.
-# GAP (NFR-REL-002): a distinct confirmation step is required before an action
-#   that removes access.
+# FR-PE-006 leave, whatever the role. An Admin with others remaining names a
+# successor (FR-ACE-007); the last member leaving cancels the activity; a
+# freed seat is filled from the waitlist (FR-PE-010). The template asks for
+# confirmation first (NFR-REL-002).
 @bp.route("/activity/<activity_id>/leave", methods=["POST"])
 @flask_login.login_required
 def leave_activity(activity_id):
-    activity = _visible_activity_or_404(activity_id)
-    user = flask_login.current_user
-
-    membership = db.session.get(model.ActivityMembership, (activity.id, user.id))
-    if membership is None:
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    if membership.role == model.ROLE_ADMIN and activity.attendee_count > 1:
-        flash("Choose a successor before leaving this activity.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
-
-    db.session.delete(membership)
-    activity.attendee_count -= 1
-    db.session.commit()
-
-    return redirect(url_for("main.activity", activity_id=activity_id))
+    errors, result = ParticipationService.leave(
+        activity_id, flask_login.current_user,
+        successor_id=request.form.get("successor_id") or None)
+    if not errors and result.cancelled:
+        return _back(activity_id, errors,
+                     "You left the activity. Nobody else was in it, so it was cancelled.")
+    return _back(activity_id, errors, "You left the activity.")
 
 
 # --- FR-MESS messaging -------------------------------------------------------
@@ -746,19 +667,6 @@ def new_message(activity_id):
 
     return redirect(url_for("main.activity", activity_id=activity_id,
                             forum_topic=topic.name))
-
-
-# FR-ACE-001 supporting route: renders the activity creation form.
-@bp.route("/form")
-@flask_login.login_required
-def form():
-    from . import universities
-    return render_template(
-        "main/activity_form.html",
-        activity_types=db.session.execute(
-            db.select(model.ActivityType).order_by(model.ActivityType.name)).scalars().all(),
-        universities=universities.search(),
-    )
 
 
 # --- FR-PROF-005 follows -----------------------------------------------------
@@ -880,9 +788,9 @@ def delete_meetup(activity_id, meetup_id):
 
 # FR-AD-002 browse with filters; FR-AD-003 age eligibility computed from the
 # viewer's birthday.
-# GAP (FR-AD-002): the activity type filter and the school-year range filter
-#   the requirement lists are not implemented, though the schema has columns
-#   for both. Filters on origin and destination are not in the requirement.
+# GAP (FR-AD-002): the school-year range filter the requirement lists is not
+#   implemented, though the schema has the columns. Filters on origin and
+#   destination are not in the requirement.
 # GAP (FR-AD-006): no cursor, so this is one page rather than infinite scroll.
 #   The design uses keyset pagination on (created_at, id).
 @bp.route("/browse_activities")
@@ -899,6 +807,10 @@ def browse_activities():
         model.Activity.status.in_([model.STATUS_OPEN, model.STATUS_APPROVAL_REQUIRED]),
         model.Activity.attendee_count < model.Activity.max_attendees,
     )
+
+    type_id = request.args.get("type_id", type=int)
+    if type_id:
+        activities_query = activities_query.where(model.Activity.type_id == type_id)
 
     max_budget = request.args.get("max_budget", type=float)
     if max_budget:
@@ -937,4 +849,5 @@ def browse_activities():
         activities_query.order_by(model.Activity.created_at.desc())
     ).scalars().all()
 
-    return render_template("main/browse_activities.html", activities=activities)
+    return render_template("main/browse_activities.html", activities=activities,
+                           activity_types=activity_types.all_types(), filters=request.args)
