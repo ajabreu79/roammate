@@ -348,10 +348,6 @@ skill in `.claude/skills/`.
   @mentions have tables but no code.
 - Nothing subscribes to the event outbox, so no in-app or email
   notifications are delivered.
-- The three `/activity/<id>/meetups` routes reference `model.Meetup`, which
-  does not exist in the design doc's schema and so is not in `model.py`. They
-  raise at request time. No template links to them any more; either add a
-  requirement and a table, or remove the routes.
 - No test exercises a row-level security policy, because the suite runs on
   SQLite. See the limits under "Tests".
 - Message timestamps display in UTC, while activity times are the
