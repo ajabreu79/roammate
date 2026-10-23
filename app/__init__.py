@@ -69,6 +69,24 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
+    # Neon suspends an idle compute after about five minutes (scale to zero),
+    # which closes the TCP connections our pool is still holding. The next
+    # request then checks out a dead socket and fails with "SSL connection has
+    # been closed unexpectedly" on whatever statement happens to touch it
+    # first -- an error about the connection, never about the query.
+    #
+    # pool_pre_ping spends one round trip validating a connection on checkout
+    # and transparently replaces a dead one. pool_recycle discards connections
+    # before the suspend window so the ping usually has nothing to catch.
+    #
+    # PostgreSQL only: an in-memory SQLite database lives *in* its connection,
+    # so recycling one would silently swap the schema for an empty one.
+    if app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgresql"):
+        options = dict(app.config.get("SQLALCHEMY_ENGINE_OPTIONS") or {})
+        options.setdefault("pool_pre_ping", True)
+        options.setdefault("pool_recycle", 240)
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = options
+
     os.makedirs(app.instance_path, exist_ok=True)
 
     db.init_app(app)

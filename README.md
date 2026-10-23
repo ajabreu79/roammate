@@ -205,6 +205,7 @@ What the files cover:
 | `test_clerk_settings.py` | the instance-settings checker |
 | `test_rls_scope.py` | the RLS identity is in force for every transaction of a request |
 | `test_session_contents.py` | everything cached in the Flask session stays JSON-serialisable |
+| `test_db_pool.py` | the pool survives Neon suspending an idle compute |
 
 Two limits worth knowing before relying on the number:
 
