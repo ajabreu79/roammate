@@ -5,7 +5,10 @@
    FR-PROF-005: follow button state comes from the Follow row. #}
 {% extends 'base.html' %}
 
-{% block head %}<title>{{ user.name }} - RoamMate</title>{% endblock %}
+{% block head %}
+    <title>{{ user.name }} - RoamMate</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/profile.css') }}" />
+{% endblock %}
 
 {% block content %}
 <div class="main-container">
@@ -19,6 +22,34 @@
         {% if user.age %}<p>Age {{ user.age }}</p>{% endif %}
         {% if user.gender %}<p>{{ user.gender }}</p>{% endif %}
         <p>{{ user.description }}</p>
+
+        {# FR-PROF-002, FR-PROF-005: Follower/Following counts and list links}
+        <div class="profile-stats">
+            <a href="{{ url_for('main.user_followers', user_id=user.id) }}"><strong>{{ user.follower_count | default(0) }}</strong> Followers</a>
+            <span class="stat-divider">&bull;</span>
+            <a href="{{ url_for('main.user_following', user_id=user.id) }}"><strong>{{ user.following_count | default(0) }}</strong> Following</a>
+        </div>
+
+        {# FR-PROF-005: Follow / Unfollow button (visible only when viewing other users) #}
+        {% if current_user.id != user.id %}
+        <div class="profile-actions">
+            <form action="{{ url_for('main.toggle_follow', user_id=user.id) }}" method="POST">
+                <button type="submit" class="follow-btn {% if is_following %}following{% endif %}">
+                    {% if is_following %}Unfollow{% else %}Follow{% endif %}
+                </button>
+            </form>
+        </div>
+        {% endif %}
+
+        {# FR-PROF-008: External social and messaging contacts #}
+        {% if user.social_links %}
+        <h3>Social Contacts</h3>
+        <ul class="social-links-list">
+            {% for platform, link in user.social_links.items() %}
+            <li><a href="{{ link }}" target="_blank" rel="noopener noreferrer">{{ platform | capitalize }}</a></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
 
         {# FR-PROF-001: past and upcoming activities, each with a date and a
            link to the activity. #}

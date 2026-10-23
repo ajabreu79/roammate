@@ -39,6 +39,7 @@
   
   .profile-container p {
     margin: 0 0 0.5rem;
+    text-align: center;
   }
   
   /* School and university line right under the name */
@@ -46,7 +47,62 @@
     text-align: center;
     color: var(--muted, #5b6b6b);
   }
-  
+
+  /* ---------- FR-PROF-002 & FR-PROJ-005: Stats & Follow Actions ---------- */
+
+  .profile-stats {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+    color: var(--muted, #5b6b6b);
+  }
+
+  .profile-stats a {
+    color: var(--brand, #0f3d3e);
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .profile-stats a:hover {
+    text-decoration: underline;
+  }
+
+  .profile-actions {
+    display: flex;
+    justify-content: center;
+    margin: 1rem 0;
+  }
+
+  .follow-btn {
+    padding: 0.5rem 1.5rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #fff;
+    background: var(--brand, #0f3d3e);
+    border: 2px solid var(--brand, #0f3d3e);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .follow-btn:hover {
+    background: #144f50;
+  }
+
+  .follow-btn.following {
+    background: #fff;
+    color: var(--brand, #0f3d3e);
+  }
+
+  .follow-btn.following:hover {
+    background: #fbeae6;
+    color: #8f3220;
+    border-color: #8f3220;
+  }
+
   /* ---------- Activity sections ---------- */
   
   .profile-container h3 {
@@ -76,10 +132,34 @@
   .profile-container li a {
     font-weight: 700;
     text-decoration: none;
+    color: var(--brand, #dfe4e1);
+  }
+
+  .profile-container li:last-child {
+    border-bottom: none;
+  }
+
+  .profile-contrainer li a {
+    font-weight: 700;
+    text-decoration: none;
+    color: var(--brand, #0f3d3e);
   }
   
   .profile-container li a:hover {
     text-decoration: underline;
+  }
+
+  /* FR-PROF-008: Social Links List formatting */
+  .social-links-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem 1.25rem;
+  }
+
+  .social-links-list li {
+    border-bottom: none;
+    padding: 0.25rem 0;
   }
   
   /* ---------- Flash messages ---------- */
