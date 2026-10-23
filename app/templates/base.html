@@ -35,7 +35,8 @@
         </a>
         <!-- Logout is POST-only: a GET logout can be triggered by any
              third-party page embedding it as an image. -->
-        <form class="logout-form" action="{{ url_for('auth.logout_post') }}" method="post">
+        <form class="logout-form" data-logout action="{{ url_for('auth.logout_post') }}"
+          method="post">
           <button type="submit" class="logout-button">Log out</button>
         </form>
         {% endif %}

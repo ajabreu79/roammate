@@ -38,6 +38,15 @@
       .catch(function () { return null; });
   }
 
+  // Ends the Clerk session in the browser, clearing its cookies. Without this
+  // the server can revoke the session but the unexpired __session token keeps
+  // authenticating, so logout looked like it did nothing.
+  function signOut() {
+    return load()
+      .then(function (clerk) { return clerk ? clerk.signOut() : null; })
+      .catch(function () { return null; });
+  }
+
   function withTimeout(promise, ms) {
     return Promise.race([promise, new Promise(function (resolve) { setTimeout(resolve, ms); })]);
   }
@@ -59,6 +68,17 @@
     event.preventDefault();
     if (form.dataset.sessionPending) return;   // a second click while renewing
     form.dataset.sessionPending = '1';
+
+    // The logout form is the one POST that must not be renewed first: that
+    // would mint a fresh token for the session we are about to end, and the
+    // stale cookie is exactly what kept the user signed in. Sign out of Clerk
+    // first, then let the server clear our own session.
+    if (form.hasAttribute('data-logout')) {
+      withTimeout(signOut(), RENEW_TIMEOUT_MS).then(function () {
+        HTMLFormElement.prototype.submit.call(form);
+      });
+      return;
+    }
 
     // form.submit() sends without the clicked button's name and value, which
     // some forms depend on (Approve / Deny), so carry them over.

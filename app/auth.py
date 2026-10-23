@@ -40,7 +40,16 @@ PUBLIC_ENDPOINTS = {
     "auth.oauth_google_callback",
     "auth.university_options",
     "auth.refresh",
+    # Not because logging out is public, but because it has to work from a
+    # browser that no longer holds a Clerk session: session.js signs out of
+    # Clerk first, so this request arrives anonymous. Gating it would bounce
+    # that request to the sign-up page and leave our own cookie behind.
+    "auth.logout_post",
 }
+
+# Cookie names clerk-js sets on this origin. Newer Clerk instances suffix them
+# per instance (__session_VAihZPV5), so these are prefixes, not exact names.
+CLERK_COOKIE_PREFIXES = ("__session", "__client_uat", "__clerk", "clerk_")
 
 # How often the gate may send one browser to /auth/refresh before giving up
 # and treating it as signed out, so a session Clerk keeps renewing but this
@@ -323,11 +332,37 @@ def password_change():
 
 # --- logout (FR-AUTH-009) ---------------------------------------------------
 
+def _expire_clerk_cookies(response):
+    """Drop Clerk's cookies from this browser.
+
+    Revoking the session at Clerk is not enough on its own. The adapter
+    verifies the __session JWT against Clerk's JWKS, which is a local
+    cryptographic check and cannot see that a session was revoked, so that
+    token keeps authenticating until it expires -- about a minute. Without
+    this, the redirect below reaches /auth/login, which still sees a
+    signed-in user and sends them straight back to the dashboard: logging out
+    appeared to do nothing, and only "worked" if the token happened to expire
+    first.
+
+    session.js calls Clerk.signOut() before submitting, which is the canonical
+    teardown and also clears these. This is what makes logout work when that
+    does not run -- no JavaScript, a slow Clerk, or a direct POST.
+    """
+    for name in request.cookies:
+        if name.startswith(CLERK_COOKIE_PREFIXES):
+            response.delete_cookie(name, path="/")
+    return response
+
+
 @bp.route("/logout", methods=["POST"])
-@flask_login.login_required
 def logout_post():
+    """FR-AUTH-009.
+
+    Deliberately not login_required; see PUBLIC_ENDPOINTS. Safe to call twice:
+    revoke_session ignores a missing sid and session.clear() is idempotent.
+    """
     AuthService.logout()
-    return redirect(url_for("auth.login"))
+    return _expire_clerk_cookies(redirect(url_for("auth.login")))
 
 
 # --- account deletion and export (FR-AUTH-017) ------------------------------
