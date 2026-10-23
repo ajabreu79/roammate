@@ -1,0 +1,374 @@
+/* Our own forms: registration step 2 (signup2.html) and edit profile
+   (edit_profile.html). signup.html loads this too, for the heading and the
+   intro text around Clerk's sign-up component.
+
+   The design follows the profile page and the dashboard rather than inventing
+   a third look: paper background from roammate.css, one white card centred in
+   the column, --line borders, the same 16px radius and teal-tinted shadow as
+   .profile-container, brand-coloured headings, and pill buttons. Colours come
+   from the tokens in roammate.css; the values after the commas are fallbacks
+   if that file is not loaded.
+
+   No font import and no body rule on purpose. roammate.css owns both, and a
+   second declaration here is how the auth pages drifted away from the rest of
+   the app in the first place. */
+
+/* ---------- Layout: one centred column ---------- */
+
+.main-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem 1rem 3rem;
+}
+
+/* The welcome text sits after the form in the markup so that the form is
+   first for a screen reader and for anyone tabbing in. `order` moves it above
+   the card visually without reordering the document. */
+.info-container {
+  order: -1;
+  width: 100%;
+  max-width: 560px;
+  margin-bottom: 1.25rem;
+  text-align: center;
+}
+
+.info-container h1 {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--brand, #0f3d3e);
+  text-wrap: balance;
+}
+
+.info-container p {
+  margin: 0 auto;
+  max-width: 40ch;
+  color: var(--muted, #5b6b6b);
+}
+
+/* ---------- The card ---------- */
+
+.signup-container {
+  width: 100%;
+  max-width: 560px;
+  padding: 2rem;
+  background: #fff;
+  border: 1px solid var(--line, #dfe4e1);
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(15, 61, 62, 0.06);
+}
+
+.signup-container h2 {
+  margin: 0 0 1.5rem;
+  padding-bottom: 0.6rem;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+  color: var(--brand, #0f3d3e);
+  border-bottom: 3px solid var(--accent, #f2b134);
+}
+
+/* Section headings further down the edit-profile card ("Your data",
+   "Delete account"), matching .profile-container h3. */
+.signup-container h3 {
+  margin: 1.75rem 0 0.5rem;
+  padding-bottom: 0.4rem;
+  font-size: 1.05rem;
+  color: var(--brand, #0f3d3e);
+  border-bottom: 2px solid var(--line, #dfe4e1);
+}
+
+.signup-container hr {
+  margin: 1.75rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--line, #dfe4e1);
+}
+
+/* ---------- Fields ---------- */
+
+.form-container {
+  margin: 0;
+}
+
+/* A single column: these forms are mostly full-width selects and text areas,
+   and a two-column grid would put the university filter beside an unrelated
+   field. The activity form uses .form-grid for the cases that do pair up. */
+.credential-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.credential-inputs label {
+  margin-top: 0.85rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink, #1b2a2a);
+}
+
+.credential-inputs label:first-of-type {
+  margin-top: 0;
+}
+
+/* FR-AUTH-001: the fields step 2 will not accept empty. The marker is colour
+   plus a character, never colour alone (NFR-SOFT-005). */
+.credential-inputs label.required::after {
+  content: ' *';
+  color: #a33a2b;
+  font-weight: 700;
+}
+
+.credential-inputs input[type='text'],
+.credential-inputs input[type='date'],
+.credential-inputs select,
+.credential-inputs textarea {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  color: var(--ink, #1b2a2a);
+  background: #fff;
+  border: 1px solid var(--line, #dfe4e1);
+  border-radius: 10px;
+}
+
+.credential-inputs textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.credential-inputs input:focus-visible,
+.credential-inputs select:focus-visible,
+.credential-inputs textarea:focus-visible {
+  border-color: var(--brand, #0f3d3e);
+  /* roammate.css already gives :focus-visible a 3px accent outline; this only
+     adds the border change so the field itself reads as active. */
+}
+
+/* The character counter under the description (FR-AUTH-006). */
+.credential-inputs small {
+  align-self: flex-end;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #5b6b6b);
+}
+
+/* FR-PROF-002: university, birthday and email are shown but cannot be
+   edited. Styled as text rather than as a disabled input, because a greyed
+   box invites clicking and then does nothing. */
+.readonly-field {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  color: var(--muted, #5b6b6b);
+  background: var(--paper, #f7f8f5);
+  border: 1px dashed var(--line, #dfe4e1);
+  border-radius: 10px;
+}
+
+/* ---------- Profile picture (FR-AUTH-012) ---------- */
+
+/* Matches .profile-photo on the profile page, so the photo you are editing
+   looks like the photo you just came from. */
+.credential-inputs .profile-photo {
+  display: block;
+  width: 140px;
+  height: 140px;
+  margin: 0 auto 0.75rem;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 4px solid var(--accent, #f2b134);
+}
+
+.profile-pic-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  align-self: start;
+  padding: 0.45rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--brand, #0f3d3e);
+  background: transparent;
+  border: 2px solid var(--brand, #0f3d3e);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.profile-pic-button:hover {
+  color: #fff;
+  background: var(--brand, #0f3d3e);
+}
+
+/* signup2.js replaces this with the chosen file's name, which can be long
+   enough to stretch the pill across the card. */
+.profile-pic-button .file-text {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-pic-button .file-clear {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+/* The real input is hidden because the label above is the visible control,
+   but it stays in the tab order rather than being display:none -- a file
+   picker that cannot be reached by keyboard fails NFR-SOFT-005. The ring is
+   moved onto the label so focus is still visible. */
+.credential-inputs input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.credential-inputs:has(input[type='file']:focus-visible) .profile-pic-button {
+  outline: 3px solid var(--accent, #f2b134);
+  outline-offset: 2px;
+}
+
+/* ---------- Buttons ---------- */
+
+.submit-button {
+  margin-top: 1.5rem;
+  padding: 0.55rem 1.5rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--brand, #0f3d3e);
+  border: 2px solid var(--brand, #0f3d3e);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.submit-button:hover {
+  background: var(--brand-hover, #1b5e5f);
+  border-color: var(--brand-hover, #1b5e5f);
+}
+
+/* FR-AUTH-017 / NFR-REL-002: deletion is destructive, so it does not look
+   like the save button. The typed confirmation is the distinct second step. */
+.signup-container form[action$='account'] {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.signup-container form[action$='account'] label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.signup-container form[action$='account'] input[type='text'] {
+  width: 100%;
+  max-width: 14rem;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  border: 1px solid var(--line, #dfe4e1);
+  border-radius: 10px;
+}
+
+.signup-container button.danger {
+  margin-top: 0.4rem;
+  padding: 0.45rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: #a33a2b;
+  border: 2px solid #a33a2b;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.signup-container button.danger:hover {
+  background: #8f3220;
+  border-color: #8f3220;
+}
+
+/* ---------- Clerk's sign-up component (signup.html) ---------- */
+
+/* Clerk renders its own card, so it is centred and left otherwise alone.
+   Anything beyond layout belongs in Clerk's `appearance` option, not here --
+   its internals are generated class names that will change under us. */
+#clerk-sign-up,
+#clerk-sign-in {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* ---------- Flash messages ---------- */
+
+.flash-messages:empty {
+  display: none;
+}
+
+.flash-messages {
+  margin-top: 1rem;
+}
+
+.flash-message {
+  margin: 0 0 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  color: #8f3220;
+  background: #fbeae6;
+  border-radius: 10px;
+}
+
+/* ---------- Links under the card ---------- */
+
+.signup-container > p a {
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 480px) {
+  .main-container {
+    padding: 1.25rem 0.75rem 2rem;
+  }
+
+  .signup-container {
+    padding: 1.25rem;
+    border-radius: 12px;
+  }
+
+  .credential-inputs .profile-photo {
+    width: 110px;
+    height: 110px;
+  }
+}
+
+/* ---------- signup.html: don't put a card inside a card ---------- */
+
+/* signup2 and edit-profile are our own forms, so the card above is theirs.
+   signup.html instead hosts Clerk's sign-up component, which draws its own
+   card with its own border and shadow. Flattening ours there leaves one card
+   on the page rather than two nested ones. */
+.signup-container:has(#clerk-sign-up) {
+  max-width: 480px;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.signup-container:has(#clerk-sign-up) h2 {
+  margin-bottom: 1rem;
+  text-align: center;
+  border-bottom: 0;
+}
+
+.signup-container:has(#clerk-sign-up) > p {
+  text-align: center;
+}

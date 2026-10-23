@@ -6,7 +6,9 @@
 
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='resources/logo.png') }}">
+  {# Commented out until a final logo exists: resources/logo.png is not in the
+     repo, so this requested a missing file on every page load. #}
+  {# <link rel="icon" type="image/png" href="{{ url_for('static', filename='resources/logo.png') }}"> #}
   <title>RoamMate</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='roammate.css') }}" />
   <link rel="resources" href="{{ url_for('static', filename='resources') }}" />
@@ -16,11 +18,15 @@
 <body>
   <header>
     <div class="header-container">
-      <a href="{{ url_for('main.index') }}">
+      {# Header logo commented out until a final logo exists:
+         resources/logo-full.png is not in the repo and rendered broken.
+         The wordmark below carries the home link in the meantime, so the
+         header keeps a route home rather than an empty anchor. #}
+      {# <a href="{{ url_for('main.index') }}">
         <img src="{{ url_for('static', filename='resources/logo-full.png') }}" alt="Home"
           class="header-icon header-logo" />
-      </a>
-      <h1>RoamMate</h1>
+      </a> #}
+      <h1><a href="{{ url_for('main.index') }}">RoamMate</a></h1>
       <div class="spacer">
         {% if current_user.is_authenticated %}
         <a href="{{ url_for('main.profile', user_id=current_user.id) }}" class="header-profile-link">
@@ -45,7 +51,8 @@
         </a>
         <!-- Logout is POST-only: a GET logout can be triggered by any
              third-party page embedding it as an image. -->
-        <form class="logout-form" action="{{ url_for('auth.logout_post') }}" method="post">
+        <form class="logout-form" data-logout action="{{ url_for('auth.logout_post') }}"
+          method="post">
           <button type="submit" class="logout-button">Log out</button>
         </form>
         {% endif %}
@@ -54,11 +61,18 @@
   </header>
   <section class="content">{% block content %}{% endblock %}</section>
   <footer><small>Developed for CSDS 393</small></footer>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"
-    integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
-  {% block scripts %}
-  <script src="{{ url_for('static', filename='roammate.js') }}"></script>
-  {% endblock %}
+  {# No shared script. Page behaviour lives in per-page script blocks and in
+     the two purpose-built files (js/signup2.js, js/session.js) that the pages
+     needing them load themselves. roammate.js was referenced here but never
+     existed, so every page not overriding this block requested a missing
+     file. jQuery went with it; nothing in the project used it.
+     Pages that need their own scripts override this block.
+
+     Prose only, deliberately: an HTML language server does not understand
+     Jinja comments, and a literal script tag written in here would put it in
+     raw-text mode until the next real closing tag, reporting errors for
+     every line in between. #}
+  {% block scripts %}{% endblock %}
   {# FR-AUTH-008: Clerk's session token lasts about a minute, and only a page
      running clerk-js renews it. Pages that mount a Clerk component load it
      themselves and override this block. #}

@@ -1,7 +1,8 @@
 import os
+import uuid
 from datetime import timedelta
 
-from flask import Flask
+from flask import Flask, request
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 import flask_login
@@ -128,9 +129,84 @@ def create_app(test_config=None):
     # unfinished-signup redirection are the default for every route.
     app.before_request(auth.require_authentication)
 
+    register_error_handlers(app)
     register_cli(app)
 
     return app
+
+
+def register_error_handlers(app):
+    """NFR-SOFT-006: no user-facing output carries diagnostic detail.
+
+    Without these, Werkzeug answers an unhandled exception with its debugger
+    (in debug mode) or a bare 500, and the former puts a full stack trace --
+    file paths, SQL, framework versions, an interactive console -- in front of
+    whoever triggered it.
+
+    Flask only consults the 500 handler when it is not propagating
+    exceptions, so `flask run --debug` still shows the debugger by design.
+    Run without --debug to see these pages.
+    """
+    from flask import render_template
+
+    def page(status, heading, message, correlation_id=None):
+        return render_template(
+            "errors/error.html", heading=heading, message=message,
+            correlation_id=correlation_id,
+        ), status
+
+    @app.errorhandler(403)
+    def forbidden(_error):
+        return page(403, "Not allowed",
+                    "You do not have permission to view this page.")
+
+    @app.errorhandler(404)
+    def not_found(_error):
+        return page(404, "Page not found",
+                    "That page does not exist, or the link has changed.")
+
+    @app.errorhandler(405)
+    def method_not_allowed(_error):
+        return page(405, "That action is not available here",
+                    "The page was reached in a way it does not accept.")
+
+    @app.errorhandler(413)
+    def too_large(_error):
+        # MAX_CONTENT_LENGTH is 5 MB; FR-AUTH-012 uploads land here.
+        return page(413, "That file is too large",
+                    "Profile photos must be smaller than 5 MB. "
+                    "Please choose a smaller image.")
+
+    @app.errorhandler(Exception)
+    def unhandled(error):
+        """Everything not handled above, including a failed database call.
+
+        HTTPException subclasses carry their own status and message and are
+        re-raised so the specific handlers above still run; only genuine
+        server faults reach the 500 page.
+        """
+        from werkzeug.exceptions import HTTPException
+        if isinstance(error, HTTPException):
+            return error
+
+        # NFR-SOFT-007: one id ties this response to its log entry. The
+        # traceback goes to the log, never to the response.
+        correlation_id = uuid.uuid4().hex[:12]
+        app.logger.exception(
+            "Unhandled error %s on %s %s", correlation_id,
+            request.method, request.path,
+        )
+
+        # A failed request can leave the session holding a dead transaction,
+        # which would make rendering the page fail too.
+        try:
+            db.session.rollback()
+        except Exception:                # pragma: no cover - best effort
+            app.logger.warning("Could not roll back after error %s", correlation_id)
+
+        return page(500, "Something went wrong on our end",
+                    "The problem has been logged. Please try again in a moment.",
+                    correlation_id=correlation_id)
 
 
 def register_cli(app):
