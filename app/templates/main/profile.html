@@ -13,10 +13,25 @@
 {% block content %}
 <div class="main-container">
     <div class="profile-container">
-        <img class="profile-photo"
-            src="{{ url_for('static', filename='resources/' ~ user.profile_photo) }}"
-            alt="{{ user.name }}" />
-        <h2>{{ user.name }}</h2>
+        {% if user.profile_photo and user.profile_photo != 'None' and user.profile_photo.strip() != '' %}
+            <img class="profile-photo"
+                src="{{ url_for('static', filename='resources/' ~ user.profile_photo) }}"
+                alt="{{ user.name }}"
+                onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+            <div class="profile-photo profile-avatar-placeholder" style="display: none;">
+                <svg viewBox="0 0 24 24" width="70" height="70" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+            </div>
+        {% else %}
+            <div class="profile-photo profile-avatar-placeholder">
+                <svg viewBox="0 0 24 24" width="70" height="70" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+            </div>
+        {% endif %}
         {% if not user.is_deleted %}
         <p>{{ user.school_year }}{% if user.university_name %} at {{ user.university_name }}{% endif %}</p>
         {% if user.age %}<p>Age {{ user.age }}</p>{% endif %}
@@ -54,24 +69,22 @@
         {# FR-PROF-001: past and upcoming activities, each with a date and a
            link to the activity. #}
         <h3>Upcoming activities</h3>
-        <ul>
+        <div class="activity-cards-container">
             {% for activity in upcoming_activities %}
-            <li>
-                <a href="{{ url_for('main.activity', activity_id=activity.id) }}">{{ activity.title }}</a>
-                &mdash; {{ activity.start_at.strftime('%Y-%m-%d') }}
-            </li>
-            {% else %}<li>None yet.</li>{% endfor %}
-        </ul>
+                {% include 'main/_activity_card.html' %}
+            {% else %}
+                <p class="muted">None yet.</p>
+            {% endfor %}
+        </div>
 
         <h3>Past activities</h3>
-        <ul>
+        <div class="activity-cards-container">
             {% for activity in past_activities %}
-            <li>
-                <a href="{{ url_for('main.activity', activity_id=activity.id) }}">{{ activity.title }}</a>
-                &mdash; {{ activity.start_at.strftime('%Y-%m-%d') }}
-            </li>
-            {% else %}<li>None yet.</li>{% endfor %}
-        </ul>
+                {% include 'main/_activity_card.html' %}
+            {% else %}
+                <p class="muted">None yet.</p>
+            {% endfor %}
+        </div>
         {% endif %}
 
         <div class="flash-messages">
