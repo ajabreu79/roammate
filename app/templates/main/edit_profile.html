@@ -14,9 +14,25 @@
             enctype="multipart/form-data">
             <div class="credential-inputs">
                 {# FR-AUTH-012: the profile picture is changeable at any time. #}
-                <img class="profile-photo"
-                    src="{{ url_for('static', filename='resources/' ~ current_user.profile_photo) }}"
-                    alt="Current profile picture" />
+                {% if current_user.profile_photo and current_user.profile_photo != 'None' and current_user.profile_photo.strip() != '' %}
+                    <img class="profile-photo"
+                        src="{{ url_for('static', filename='resources/' ~ current_user.profile_photo) }}"
+                        alt="Current profile picture"
+                        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                    <div class="profile-photo profile-avatar-placeholder" style="display: none;">
+                        <svg viewBox="0 0 24 24" width="70" height="70" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </div>
+                {% else %}
+                    <div class="profile-photo profile-avatar-placeholder">
+                        <svg viewBox="0 0 24 24" width="70" height="70" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </div>
+                {% endif %}
                 <label class="profile-pic-button" for="profile_pic">
                     <span class="file-text">Choose a file</span>
                     <span class="file-clear" style="display:none;">×</span>

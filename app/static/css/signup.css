@@ -233,6 +233,15 @@
   outline-offset: 2px;
 }
 
+.profile-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #e2e8f0;
+  color: var(--muted, #5b6b6b);
+  box-sizing: border-box;
+}
+
 /* ---------- Buttons ---------- */
 
 .submit-button {
