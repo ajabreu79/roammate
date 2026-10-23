@@ -5,7 +5,10 @@
    FR-PROF-005: follow button state comes from the Follow row. #}
 {% extends 'base.html' %}
 
-{% block head %}<title>{{ user.name }} - RoamMate</title>{% endblock %}
+{% block head %}
+    <title>{{ user.name }} - RoamMate</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/profile.css') }}" />
+{% endblock %}
 
 {% block content %}
 <div class="main-container">
