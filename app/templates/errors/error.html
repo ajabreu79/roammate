@@ -1,0 +1,51 @@
+{# NFR-SOFT-006: the only page that may render under any error condition, so
+   it shows a plain message and nothing else -- no stack trace, no SQL, no
+   framework version, no internal identifier.
+
+   Deliberately standalone rather than extending base.html. base.html reads
+   current_user, which runs the Flask-Login request loader and queries the
+   database; if the database is what failed, rendering it would raise a second
+   exception inside the error handler and Flask would fall back to its own
+   bare response. An error page must not depend on the thing that broke, so
+   this template touches no session, no database, and no Clerk script.
+
+   The correlation id is a random opaque value generated per failure and
+   written to the server log (NFR-SOFT-007). It identifies the log entry, not
+   any record in the system. #}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ heading }} &middot; RoamMate</title>
+  {# Commented out with the other logo references until a final logo exists. #}
+  {# <link rel="icon" type="image/png" href="{{ url_for('static', filename='resources/logo.png') }}"> #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='roammate.css') }}" />
+</head>
+
+<body>
+  <header>
+    <div class="header-container">
+      <h1>RoamMate</h1>
+    </div>
+  </header>
+
+  <section class="content">
+    <main class="error-page">
+      <h2>{{ heading }}</h2>
+      <p>{{ message }}</p>
+      <p><a href="{{ url_for('main.index') }}">Go to the home page</a></p>
+      {% if correlation_id %}
+      {# Shown so a user can quote it when reporting the failure. #}
+      <p class="error-reference">
+        Reference code: <code>{{ correlation_id }}</code>
+      </p>
+      {% endif %}
+    </main>
+  </section>
+
+  <footer><small>Developed for CSDS 393</small></footer>
+</body>
+
+</html>

@@ -11,13 +11,27 @@
   data-clerk-publishable-key="{{ clerk_publishable_key }}"
   src="{{ clerk_js_url }}"></script>
 {% else %}
+{# The reason travels as JSON in its own non-executable block rather than
+   being interpolated into the script below. Two reasons: a template
+   expression inside JavaScript is not valid JavaScript, so every editor
+   reports it as a syntax error; and `clerk_problem` is None whenever
+   clerk_enabled is true, which previously rendered the literal text
+   "null" into the page if that combination was ever reached. #}
+<script type="application/json" id="clerk-problem">
+  {{ (clerk_problem or "Check the server configuration.") | tojson }}
+</script>
 <script>
   window.addEventListener('load', function () {
     var target = document.querySelector('[data-clerk-mount]');
-    if (target) {
-      target.innerHTML = '<p class="flash-message">Sign-in is not configured. ' +
-        {{ clerk_problem | tojson }} + '</p>';
-    }
+    var source = document.getElementById('clerk-problem');
+    if (!target || !source) return;
+
+    // textContent, not innerHTML: the reason is server text, so it is set as
+    // text and never parsed as markup (NFR-SECU-005).
+    var note = document.createElement('p');
+    note.className = 'flash-message';
+    note.textContent = 'Sign-in is not configured. ' + JSON.parse(source.textContent);
+    target.replaceChildren(note);
   });
 </script>
 {% endif %}
