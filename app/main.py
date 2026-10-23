@@ -312,12 +312,27 @@ def profile(user_id):
         follow = db.session.get(model.Follow, (viewer.id, user.id))
         follow_button = "unfollow" if follow else "follow"
 
+    # FR-PROF-005: counted here rather than with len(user.followers) so that a
+    # PENDING follow on a private account is not counted as a follower, and so
+    # the page does not load every Follow row to count them.
+    def accepted(column, value):
+        return db.session.execute(
+            db.select(db.func.count())
+            .select_from(model.Follow)
+            .where(column == value, model.Follow.status == model.FOLLOW_ACCEPTED)
+        ).scalar()
+
+    follower_count = accepted(model.Follow.followee_id, user.id)
+    following_count = accepted(model.Follow.follower_id, user.id)
+
     return render_template(
         "main/profile.html",
         user=user,
         past_activities=past_activities,
         upcoming_activities=upcoming_activities,
         follow_button=follow_button,
+        follower_count=follower_count,
+        following_count=following_count,
     )
 
 
@@ -673,8 +688,8 @@ def new_message(activity_id):
 
 # FR-PROF-005 follow a user. A follow on a private account is created as
 # PENDING until the owner accepts.
-# GAP (FR-PROF-005): nothing accepts a PENDING follow yet, and the follower
-#   and following lists are not exposed as their own views.
+# GAP (FR-PROF-005): nothing accepts a PENDING follow yet, so a follow on a
+#   private account stays PENDING for good.
 @bp.route("/follow/<user_id>", methods=["POST"])
 @flask_login.login_required
 def follow(user_id):
@@ -694,6 +709,66 @@ def follow(user_id):
         db.session.commit()
 
     return redirect(url_for("main.profile", user_id=user_id))
+
+
+# FR-PROF-005: the follower and following lists behind the profile page's two
+# counts. They answer JSON, not a page, because the profile opens them in a
+# modal fetched when the count is clicked; that also keeps one source of truth
+# for the membership rules below.
+def _follow_list(user_id, count_on, list_side):
+    """Accepted follows of `user_id`, as the users on `list_side`.
+
+    `count_on` is the Follow column that equals the profile's owner and
+    `list_side` the column holding the other end: followers are the rows whose
+    followee is the owner, so the people listed are their followers.
+    """
+    target = db.get_or_404(model.User, user_id)
+    viewer = flask_login.current_user
+
+    # FR-PROF-009: the same university boundary the profile itself applies.
+    if target.university_id != viewer.university_id:
+        abort(404)
+
+    # FR-PROF-005: on a private account the lists belong to the owner and to
+    # the followers it accepted. Everyone else keeps the counts and no names,
+    # which is what makes a PENDING follow worth anything.
+    if not target.account_public and viewer.id != target.id:
+        follow = db.session.get(model.Follow, (viewer.id, target.id))
+        if follow is None or follow.status != model.FOLLOW_ACCEPTED:
+            return jsonify(private=True, users=[]), 403
+
+    users = db.session.execute(
+        db.select(model.User)
+        .join(model.Follow, list_side == model.User.id)
+        .where(count_on == target.id,
+               model.Follow.status == model.FOLLOW_ACCEPTED)
+        .order_by(model.User.first_name, model.User.last_name)
+    ).scalars().all()
+
+    # NFR-SECU-009: name, year and photo only. Email and birthday never leave
+    # the owner's own pages.
+    return jsonify(private=False, users=[
+        {
+            "id": user.id,
+            "name": user.name,
+            "school_year": user.school_year,
+            "photo_url": url_for("static", filename="resources/" + user.profile_photo),
+            "profile_url": url_for("main.profile", user_id=user.id),
+        }
+        for user in users
+    ])
+
+
+@bp.route("/profile/<user_id>/followers")
+@flask_login.login_required
+def user_followers(user_id):
+    return _follow_list(user_id, model.Follow.followee_id, model.Follow.follower_id)
+
+
+@bp.route("/profile/<user_id>/following")
+@flask_login.login_required
+def user_following(user_id):
+    return _follow_list(user_id, model.Follow.follower_id, model.Follow.followee_id)
 
 
 # FR-PROF-005 unfollow a user.

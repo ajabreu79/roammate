@@ -23,19 +23,37 @@
         {% if user.gender %}<p>{{ user.gender }}</p>{% endif %}
         <p>{{ user.description }}</p>
 
-        {# FR-PROF-002, FR-PROF-005: Follower/Following counts and list links}
+        {# FR-PROF-002, FR-PROF-005: follower and following counts, each one a
+           button that opens the list in a modal. The counts come from the
+           view and exclude PENDING follows; the lists are fetched from
+           main.user_followers / main.user_following when a count is clicked,
+           so a profile with thousands of followers still renders one page.
+           Real buttons, not links, for keyboard operability (NFR-SOFT-005):
+           they act on this page rather than navigating. #}
         <div class="profile-stats">
-            <a href="{{ url_for('main.user_followers', user_id=user.id) }}"><strong>{{ user.follower_count | default(0) }}</strong> Followers</a>
+            <button type="button" class="stat-button" data-follow-list
+                data-url="{{ url_for('main.user_followers', user_id=user.id) }}"
+                data-title="Followers">
+                <strong>{{ follower_count }}</strong> Followers
+            </button>
             <span class="stat-divider">&bull;</span>
-            <a href="{{ url_for('main.user_following', user_id=user.id) }}"><strong>{{ user.following_count | default(0) }}</strong> Following</a>
+            <button type="button" class="stat-button" data-follow-list
+                data-url="{{ url_for('main.user_following', user_id=user.id) }}"
+                data-title="Following">
+                <strong>{{ following_count }}</strong> Following
+            </button>
         </div>
 
-        {# FR-PROF-005: Follow / Unfollow button (visible only when viewing other users) #}
-        {% if current_user.id != user.id %}
+        {# FR-PROF-005: follow / unfollow, only when viewing someone else.
+           follow_button is "follow", "unfollow", or None on your own profile.
+           There is no single toggle route: main.follow and main.unfollow are
+           separate endpoints, so the form posts to whichever applies. #}
+        {% if follow_button %}
         <div class="profile-actions">
-            <form action="{{ url_for('main.toggle_follow', user_id=user.id) }}" method="POST">
-                <button type="submit" class="follow-btn {% if is_following %}following{% endif %}">
-                    {% if is_following %}Unfollow{% else %}Follow{% endif %}
+            <form action="{{ url_for('main.' ~ follow_button, user_id=user.id) }}" method="POST">
+                <button type="submit"
+                    class="follow-btn {% if follow_button == 'unfollow' %}following{% endif %}">
+                    {% if follow_button == 'unfollow' %}Unfollow{% else %}Follow{% endif %}
                 </button>
             </form>
         </div>
@@ -85,4 +103,22 @@
         {% endif %}
     </div>
 </div>
+
+{# FR-PROF-005: one modal serves both lists -- the script retitles it and
+   refills the list. Hidden until a count is clicked, and inert to assistive
+   technology while hidden (NFR-SOFT-005). #}
+<div class="modal-overlay" id="follow-list-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="follow-list-title">
+        <div class="modal-header">
+            <h3 id="follow-list-title">Followers</h3>
+            <button type="button" class="modal-close" data-close-modal aria-label="Close">&times;</button>
+        </div>
+        <ul class="follow-list" id="follow-list"></ul>
+        <p class="follow-list-message" id="follow-list-message" hidden></p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/follow_list.js') }}"></script>
 {% endblock %}
