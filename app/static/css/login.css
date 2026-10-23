@@ -1,165 +1,128 @@
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=DM+Sans:wght@400;500;700&display=swap');
- 
-:root {
-  --teal-900: #0f3d3e;
-  --teal-700: #1b5e5f;
-  --marigold: #f2b134;
-  --paper: #f7f8f5;
-  --ink: #1b2a2a;
-  --muted: #5b6b6b;
-  --error-bg: #fbeae6;
-  --error-ink: #8f3220;
-  --radius: 16px;
-}
- 
-* {
-  box-sizing: border-box;
-}
- 
-body {
-  margin: 0;
-  font-family: 'DM Sans', system-ui, sans-serif;
-  color: var(--ink);
-  background: var(--paper);
-}
- 
-/* ---------- Layout: info panel on the left, login on the right ---------- */
- 
+/* Login page (login.html), which hosts Clerk's sign-in component.
+
+   Rewritten to follow the dashboard and profile pages. What it used to do and
+   no longer does, because each of these is how this page drifted away from
+   the rest of the app:
+
+     - imported Bricolage Grotesque and DM Sans, which no other page uses, so
+       the auth screens were set in different type from everything else;
+     - redeclared :root with its own --teal-900 / --marigold names, a second
+       set of tokens for the same colours already in roammate.css;
+     - redeclared * and body, which roammate.css owns;
+     - laid out a 100vh two-column split, which ignores the sticky header
+       from base.html and pushed the footer off a full-height screen.
+
+   Now: paper background, one centred column, brand headings, --line borders,
+   matching .profile-container's radius and shadow for the parts that are
+   ours. Colours come from the tokens in roammate.css; the values after the
+   commas are fallbacks if that file is not loaded. */
+
+/* ---------- Layout: one centred column ---------- */
+
 .main-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  min-height: 100vh;
-}
- 
-/* ---------- Info panel ---------- */
- 
-.info-container {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: flex-start;
-  gap: 1rem;
-  padding: 4rem clamp(2rem, 6vw, 6rem);
-  background: var(--teal-900);
-  color: #fff;
-  border-right: 6px solid var(--marigold);
+  align-items: center;
+  padding: 2rem 1rem 3rem;
 }
- 
-.info-image {
-  width: 150px;
-  height: auto;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  background: #fff;
-  border-radius: 12px;
+
+/* The welcome text follows the form in the markup, so the sign-in control is
+   first for a screen reader and for anyone tabbing in. `order` lifts it above
+   the card visually without reordering the document. */
+.info-container {
+  order: -1;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 1.25rem;
+  text-align: center;
 }
- 
+
 .info-container h1 {
-  margin: 0;
-  font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif;
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  line-height: 1.1;
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  line-height: 1.15;
   letter-spacing: -0.02em;
+  color: var(--brand, #0f3d3e);
+  text-wrap: balance;
 }
- 
+
 .info-container p {
-  margin: 0;
-  max-width: 32ch;
-  font-size: 1.15rem;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.85);
+  margin: 0 auto;
+  max-width: 40ch;
+  color: var(--muted, #5b6b6b);
 }
- 
-/* ---------- Login panel ---------- */
- 
+
+/* ---------- The sign-in column ---------- */
+
+/* No white card here. Clerk renders its own card with its own border and
+   shadow, so wrapping it in ours would show a card inside a card. Our chrome
+   is the heading above and the link below. signup.css does the same for the
+   sign-up component, and keeps its card for the forms we render ourselves. */
 .login-container {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 480px;
+}
+
+.login-container h2 {
+  margin: 0 0 1rem;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+  text-align: center;
+  color: var(--brand, #0f3d3e);
+}
+
+/* Kept for the subtitle the template may add back; harmless if unused. */
+.login-subtitle {
+  margin: -0.5rem 0 1.25rem;
+  text-align: center;
+  color: var(--muted, #5b6b6b);
+}
+
+#clerk-sign-in {
+  display: flex;
   justify-content: center;
   width: 100%;
-  max-width: 460px;
-  margin: 0 auto;
-  padding: 3rem 2rem;
 }
- 
-.login-container h2 {
-  margin: 0 0 0.25rem;
-  font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif;
-  font-size: 2rem;
-  letter-spacing: -0.01em;
-}
- 
-.login-subtitle {
-  margin: 0 0 1.5rem;
-  color: var(--muted);
-}
- 
-#clerk-sign-in {
-  width: 100%;
-}
- 
+
 /* ---------- Flash messages ---------- */
- 
+
+/* Matches .flash-message on the profile page. */
+.flash-messages:empty {
+  display: none;
+}
+
 .flash-messages {
   margin-top: 1rem;
 }
- 
+
 .flash-message {
   margin: 0 0 0.5rem;
   padding: 0.75rem 1rem;
-  border-radius: 10px;
-  background: var(--error-bg);
-  color: var(--error-ink);
   font-size: 0.95rem;
+  color: #8f3220;
+  background: #fbeae6;
+  border-radius: 10px;
 }
- 
-/* ---------- Footer link ---------- */
- 
-.login-footer {
-  margin: 1.5rem 0 0;
-  color: var(--muted);
+
+/* ---------- FR-AUTH-011: one click to the other page ---------- */
+
+.login-container > p {
+  margin: 1.25rem 0 0;
+  text-align: center;
+  color: var(--muted, #5b6b6b);
 }
- 
-.login-footer a {
-  color: var(--teal-700);
+
+.login-container > p a {
   font-weight: 700;
   text-underline-offset: 3px;
 }
- 
-.login-footer a:hover {
-  color: var(--teal-900);
-}
- 
-a:focus-visible {
-  outline: 3px solid var(--marigold);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
- 
-/* ---------- Mobile: stack the panels ---------- */
- 
-@media (max-width: 800px) {
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 480px) {
   .main-container {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
- 
-  .info-container {
-    padding: 2rem 1.5rem;
-    border-right: none;
-    border-bottom: 6px solid var(--marigold);
-  }
- 
-  .info-image {
-    width: 110px;
-    margin-bottom: 0.5rem;
-  }
- 
-  .info-container p {
-    font-size: 1rem;
-  }
- 
-  .login-container {
-    padding: 2rem 1.5rem 3rem;
+    padding: 1.25rem 0.75rem 2rem;
   }
 }

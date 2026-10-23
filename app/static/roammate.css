@@ -70,6 +70,19 @@
     color: var(--brand);
   }
   
+  /* The wordmark carries the home link while there is no logo, so it must not
+     look like body copy with a link in it. */
+  .header-container h1 a {
+    color: inherit;
+    text-decoration: none;
+  }
+  
+  .header-container h1 a:hover {
+    color: var(--brand-hover);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  
   .header-logo {
     display: block;
     height: 40px;
@@ -139,7 +152,10 @@
   /* ---------- Small screens ---------- */
   
   @media (max-width: 480px) {
+    /* The wordmark used to be hidden here because the logo said "RoamMate"
+       already. The logo is commented out until there is a final one, so
+       hiding this too left the mobile header blank and with no way home. */
     .header-container h1 {
-      display: none; /* the logo already says RoamMate */
+      font-size: 1.1rem;
     }
   }
