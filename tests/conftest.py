@@ -84,7 +84,7 @@ def app(monkeypatch, identity, clerk_calls, tmp_path):
         universities.seed()
         yield application
         _db.session.remove()
-        _db.drop_all()
+        _db.engine.dispose()
 
 
 @pytest.fixture
@@ -97,9 +97,9 @@ def signed_out(app):
     app.config["_SIGNED_IN"]["signed_in"] = False
     return app
 
-
+# Not sure if it should be db(): instead
 @pytest.fixture
-def db():
+def db(app):
     return _db
 
 
