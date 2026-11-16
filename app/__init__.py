@@ -2,7 +2,7 @@ import os
 import uuid
 from datetime import timedelta
 
-from flask import Flask, request
+from flask import Flask, request, redirect
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 import flask_login
@@ -65,7 +65,11 @@ def create_app(test_config=None):
 
         # Set COOKIE_SECURE=1 in any deployment served over HTTPS. Off by
         # default so cookies are not silently dropped on a plain-http dev server.
-        SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE") == "1",
+        SESSION_COOKIE_SECURE=(
+            os.environ.get("COOKIE_SECURE") == "1"
+            if os.environ.get("COOKIE_SECURE") is not None
+            else not (os.environ.get("FLASK_DEBUG") == "1" or test_config is not None)
+        ),
     )
     if test_config:
         app.config.update(test_config)
@@ -124,6 +128,21 @@ def create_app(test_config=None):
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(main.bp)
+
+    @app.before_request
+    def enforce_https():
+        # Redirect HTTP to HTTPS
+        if not app.debug and not app.config.get("TESTING"):
+            if request.headers.get("X-Forwarded-Proto", "http") == "http":
+                url = request.url.replace("http://", "https://", 1)
+                return redirect(url, code=301)
+
+    @app.after_request
+    def add_security_headers(response):
+        # Send HSTS header on all production responses
+        if not app.debug and not app.config.get("TESTING"):
+            response.headers["Strict-Transport-Security"] = "max-age=6307200; includeSubDomains; preload"
+        return response
 
     # FR-AUTH-010 / 014 / 001: route protection, verification gating and
     # unfinished-signup redirection are the default for every route.

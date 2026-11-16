@@ -327,6 +327,14 @@ the setting unset, and a cross-university `INSERT` is refused by the policy's
 `_university_scoped()` in `main.py` stays. It is the application half; RLS is
 what holds when a query forgets to call it.
 
+### Production Security & Configuration
+
+In production environments (when `FLASK_DEBUG` is disabled), **Roammate** automatically enforces security best practices at the applicaiton level:
+
+* **HTTP to HTTPS Redirection:** Incoming requests over plain `http://` behind a proxy or load balancer receive a permanent `301` redirect to `https://`
+* **HSTS Header:** All responses include the `Strict-Transport-Security` header
+* **Secure Cookies:** Session cookies default to `secure=True` outside of debug and testing modes
+
 ### Branches
 
 The schema is applied to the `production` branch. For ongoing work prefer a
