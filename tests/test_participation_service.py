@@ -26,9 +26,9 @@ from app.participation import (
 # ------------------------------------------------------------------ factories
 # Same shape as the helpers in test_model.py. `app` and `db` come from conftest.py.
 OPEN = model.STATUS_OPEN
-CLOSED = "CLOSED"          # TODO: confirm these two names against activity_rules
-FINALIZED = "FINALIZED"
-FRESHMAN, SENIOR = "Freshman", "Senior"      # TODO: confirm stored school_year values
+CLOSED = model.STATUS_CLOSED
+FINALIZED = model.STATUS_FINALIZED
+FIRST_YEAR, SENIOR = "First year", "Senior"      # TODO: confirm stored school_year values
 JUNIOR = "Junior"
 WOMAN, MAN = "Woman", "Man"
 
@@ -81,9 +81,7 @@ def make_activity(db, university, make_user):
         activity = model.Activity(**fields)
         db.session.add(activity)
         db.session.flush()
-        MembershipManager.add(activity, admin.id)
-        # TODO: if MembershipManager.add takes a role, pass ADMIN there instead.
-        next(m for m in activity.memberships if m.user_id == admin.id).role = ADMIN
+        MembershipManager.add(activity, admin.id, role=ADMIN)
         db.session.commit()
         return activity, admin
     return _make
@@ -224,8 +222,8 @@ def test_leave_waitlist_when_not_queued(make_activity, make_user):
 @pytest.mark.parametrize("rule, user_fields", [
     ({"min_age": 18}, {"age": 16}),
     ({"max_age": 25}, {"age": 30}),
-    ({"min_year": SENIOR}, {"school_year": FRESHMAN}),
-    ({"max_year": FRESHMAN}, {"school_year": SENIOR}),
+    ({"min_year": SENIOR}, {"school_year": FIRST_YEAR}),
+    ({"max_year": FIRST_YEAR}, {"school_year": SENIOR}),
     ({"allowed_genders": MAN}, {"gender": WOMAN}),
 ], ids=["too-young", "too-old", "year-too-low", "year-too-high", "wrong-gender"])
 def test_ineligible_user_cannot_join(make_activity, make_user, rule, user_fields):
