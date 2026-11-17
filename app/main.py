@@ -52,6 +52,7 @@ from .activities import (
 )
 from .activity_rules import SCHOOL_YEARS, ActivityStatusMachine, RolePolicy
 from .participation import JOINED, ParticipationService
+from .feed import FeedService
 
 bp = Blueprint("main", __name__)
 
@@ -250,8 +251,6 @@ def _render_form(activity, values, status=200):
 # contents (template); FR-AD-006 scroll.
 # GAP (FR-AD-006): limit(4) with no cursor. Infinite scroll needs keyset
 #   pagination on (created_at, id) per the design's CursorPaginator.
-# GAP (FR-PROF-006): activities from followed creators are not prioritized;
-#   ordering is newest-first for everyone.
 @bp.route("/")
 @flask_login.login_required
 def index():
@@ -270,8 +269,10 @@ def index():
         .order_by(model.Activity.start_at)
     ).scalars().all()
 
+    for_you = FeedService.for_user(user, limit=4)
+
     return render_template("main/index.html", latest_activities=latest_activities,
-                           my_activities=my_activities)
+                           my_activities=my_activities, for_you=for_you)
 
 
 # --- FR-PROF-001 profile -----------------------------------------------------
@@ -901,3 +902,10 @@ def browse_activities():
 
     return render_template("main/browse_activities.html", activities=activities,
                            activity_types=activity_types.all_types(), filters=request.args)
+
+# FR-PROF-006 followed users prioritized; FR-AD-001 personalized feed.
+@bp.route("/feed")
+@flask_login.login_required
+def feed():
+    items = FeedService.for_user(flask_login.current_user, limit=40)
+    return render_template("main/feed.html", items=items)

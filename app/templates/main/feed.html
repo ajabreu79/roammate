@@ -1,0 +1,33 @@
+{# FR-PROF-006 / FR-AD-001 "For you": FeedService.for_user, best first.
+   Expects: items (FeedItem: activity, score, reasons). #}
+{% extends 'base.html' %}
+
+{% block head %}
+<title>For you - RoamMate</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/activity.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-head">
+    <h2>For you</h2>
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('main.browse_activities') }}">Browse all</a>
+    </div>
+  </div>
+
+  {% if items %}
+  <div class="card-grid">
+    {% for item in items %}
+    {% set activity = item.activity %}
+    <div>
+      {% include 'main/_activity_card.html' %}
+      {% if item.reasons %}<p class="muted">{{ item.reasons | join(' · ') }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">Nothing to recommend yet. Follow people or join an activity to tune your feed.</p>
+  {% endif %}
+</div>
+{% endblock %}
