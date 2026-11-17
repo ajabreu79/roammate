@@ -91,8 +91,8 @@ def create_app(test_config=None):
         options.setdefault("pool_pre_ping", True)
         options.setdefault("pool_recycle", 240)
         app.config["SQLALCHEMY_ENGINE_OPTIONS"] = options
-
-   try:
+        
+    try:
         os.makedirs(app.instance_path, exist_ok=True)
     except OSError:
         # Read-only filesystem (e.g. Vercel). The instance folder is only
