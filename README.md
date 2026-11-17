@@ -353,8 +353,11 @@ skill in `.claude/skills/`.
 
 - The rate limiter in `app/ratelimit.py` is in-process, so each worker keeps
   its own counter; a multi-worker deployment needs Redis behind it.
-- Invitations (FR-PE-011), real-time messaging, message edit/delete and
-  @mentions have tables but no code.
+- New messages reach other participants by polling every few seconds
+  (FR-MESS-009), not over a WebSocket. The design's WebSocket plus Redis
+  pub/sub is the path for scaling out.
+- Invitations (FR-PE-011), message edit/delete and @mentions have tables
+  but no code.
 - Nothing subscribes to the event outbox, so no in-app or email
   notifications are delivered.
 - No test exercises a row-level security policy, because the suite runs on
