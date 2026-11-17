@@ -33,6 +33,19 @@
     {% endif %}
   </section>
 
+  {% if for_you %}
+  <section class="panel">
+    <h3>For you</h3>
+    <div class="card-grid">
+      {% for item in for_you %}
+      {% set activity = item.activity %}
+      {% include 'main/_activity_card.html' %}
+      {% endfor %}
+    </div>
+    <p><a href="{{ url_for('main.feed') }}">See your full feed →</a></p>
+  </section>
+  {% endif %}
+
   <section class="panel">
     <h3>New at {{ current_user.university_name }}</h3>
     {% if latest_activities %}
