@@ -629,21 +629,28 @@ def leave_activity(activity_id):
 
 # FR-MESS-002 non-empty and 500 characters or fewer; FR-MESS-004 participants
 # only; FR-MESS-003 and FR-MESS-005 topics.
-# GAP (FR-MESS-009): delivery is a redirect, so other participants only see
-#   the message after reloading. The design uses WebSocket plus Redis pub/sub.
 # GAP (FR-MESS-007, FR-MESS-008): no edit or delete with the "message deleted
 #   by author" placeholder, and no @mention parsing. Message.deleted_at,
 #   Message.edited_at and model.MessageMention exist for both.
+# FR-MESS-009: answers JSON when asked, for the board's script.
 @bp.route("/activity/<activity_id>/message", methods=["POST"])
 @flask_login.login_required
 def new_message(activity_id):
     activity = _visible_activity_or_404(activity_id)
     user = flask_login.current_user
+    wants_json = request.accept_mimetypes.best == "application/json"
+
+    # FR-MESS-009: the board's script asks for JSON; a plain form post still
+    # gets the flash and redirect.
+    def fail(text, status, **redirect_args):
+        if wants_json:
+            return jsonify(error=text), status
+        flash(text, "error")
+        return redirect(url_for("main.activity", activity_id=activity_id, **redirect_args))
 
     # FR-MESS-004: only participants may post.
     if not RolePolicy.can(_role_in(activity, user), "post_message"):
-        flash("Only participants of this activity can post messages.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id))
+        return fail("Only participants of this activity can post messages.", 403)
 
     content = request.form.get("message-content", "").strip()
     topic_name = request.form.get("forum_topic", DEFAULT_FORUM_TOPIC).strip()
@@ -653,13 +660,10 @@ def new_message(activity_id):
 
     # FR-MESS-002: non-empty and within the cap.
     if not content:
-        flash("Message cannot be empty", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id,
-                                forum_topic=topic_name))
+        return fail("Message cannot be empty", 400, forum_topic=topic_name)
     if len(content) > model.MAX_MESSAGE_LENGTH:
-        flash(f"Messages are limited to {model.MAX_MESSAGE_LENGTH} characters.", "error")
-        return redirect(url_for("main.activity", activity_id=activity_id,
-                                forum_topic=topic_name))
+        return fail(f"Messages are limited to {model.MAX_MESSAGE_LENGTH} characters.",
+                    400, forum_topic=topic_name)
 
     # FR-MESS-005: a new topic is a row, unique per activity, so an empty
     # topic survives and messages cannot leak between topics.
@@ -670,18 +674,64 @@ def new_message(activity_id):
     ).scalar_one_or_none()
     if topic is None:
         if not RolePolicy.can(_role_in(activity, user), "create_topic"):
-            flash("You cannot create a topic in this activity.", "error")
-            return redirect(url_for("main.activity", activity_id=activity_id))
+            return fail("You cannot create a topic in this activity.", 403)
         topic = model.ForumTopic(activity_id=activity.id, name=topic_name,
                                  created_by=user.id)
         db.session.add(topic)
         db.session.flush()
 
-    db.session.add(model.Message(topic_id=topic.id, author_id=user.id, body=content))
+    message = model.Message(topic_id=topic.id, author_id=user.id, body=content)
+    db.session.add(message)
     db.session.commit()
+
+    if wants_json:
+        return jsonify(_message_json(message)), 201
 
     return redirect(url_for("main.activity", activity_id=activity_id,
                             forum_topic=topic.name))
+
+
+def _message_json(message):
+    """FR-MESS-006 author and timestamp, as the board renders them."""
+    return {
+        "id": message.id,
+        "author_name": message.author_name,
+        "body": message.body,
+        "created_at": message.created_at.strftime("%b %d, %I:%M %p"),
+    }
+
+
+# FR-MESS-009 messages newer than "after", for the board's poller.
+# FR-MESS-004 is re-checked on every poll, so a member who leaves stops
+# receiving messages on their next request.
+@bp.route("/activity/<activity_id>/topic/<topic_id>/messages")
+@flask_login.login_required
+def poll_messages(activity_id, topic_id):
+    activity = _visible_activity_or_404(activity_id)
+    user = flask_login.current_user
+
+    if not RolePolicy.can(_role_in(activity, user), "view"):
+        return jsonify(error="Only participants can read this board."), 403
+
+    topic = db.session.execute(
+        db.select(model.ForumTopic).where(
+            model.ForumTopic.id == topic_id,
+            model.ForumTopic.activity_id == activity.id)
+    ).scalar_one_or_none()
+    if topic is None:
+        abort(404)
+
+    after = request.args.get("after", 0, type=int)
+
+    messages = db.session.execute(
+        db.select(model.Message)
+        .where(model.Message.topic_id == topic.id,
+               model.Message.id > after)
+        .order_by(model.Message.id.asc())
+        .limit(100)
+    ).scalars().all()
+
+    return jsonify(messages=[_message_json(m) for m in messages])
 
 
 # --- FR-PROF-005 follows -----------------------------------------------------

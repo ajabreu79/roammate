@@ -47,6 +47,11 @@ PUBLIC_ENDPOINTS = {
     "auth.logout_post",
 }
 
+# FR-MESS-009: endpoints called by page scripts. Signed out, they get a 401
+# instead of the refresh redirect, so a background poll never uses up the
+# refresh limit (FR-AUTH-008).
+JSON_ENDPOINTS = {"main.poll_messages"}
+
 # Cookie names clerk-js sets on this origin. Newer Clerk instances suffix them
 # per instance (__session_VAihZPV5), so these are prefixes, not exact names.
 CLERK_COOKIE_PREFIXES = ("__session", "__client_uat", "__clerk", "clerk_")
@@ -89,6 +94,8 @@ def require_authentication():
     if not user.is_authenticated:
         if endpoint in PUBLIC_ENDPOINTS:
             return None
+        if endpoint in JSON_ENDPOINTS:
+            return jsonify(error="Not signed in."), 401
         # FR-AUTH-008: a signed-in user whose minute-long Clerk token has
         # lapsed looks signed out here. Let clerk-js renew it and come back,
         # rather than dropping them on the sign-up page.

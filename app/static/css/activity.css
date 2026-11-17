@@ -115,6 +115,14 @@ button.button {
   border-color: #d08a7e;
 }
 
+.form-error {
+  margin: 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  background: #fbe9e6;
+  border: 1px solid #d08a7e;
+}
+
 /* ---------- Badges ---------- */
 
 .badge {

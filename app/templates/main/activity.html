@@ -77,18 +77,22 @@
           {% endfor %}
         </nav>
 
-        <ul class="messages">
+        <ul class="messages" id="messages"
+          {% if active_topic %}
+          data-poll-url="{{ url_for('main.poll_messages', activity_id=activity.id, topic_id=active_topic.id) }}"
+          data-last-id="{{ active_forum_messages[-1].id if active_forum_messages else 0 }}"
+          {% endif %}>
           {% for message in active_forum_messages %}
-          <li>
+          <li data-id="{{ message.id }}">
             <div class="meta">{{ message.author_name }} &middot; {{ message.created_at.strftime('%b %d, %I:%M %p') }}</div>
             <div>{{ message.body }}</div>
           </li>
           {% else %}
-          <li class="muted">No messages yet. Say hello!</li>
+          <li class="muted" data-empty>No messages yet. Say hello!</li>
           {% endfor %}
         </ul>
 
-        <form class="stack" method="post" action="{{ url_for('main.new_message', activity_id=activity.id) }}">
+        <form class="stack" method="post" action="{{ url_for('main.new_message', activity_id=activity.id) }}" id="message-form">
           <input type="hidden" name="forum_topic" value="{{ active_topic.name if active_topic else 'Main' }}" />
           <div class="field">
             <label for="message-content">Message</label>
@@ -98,6 +102,7 @@
             <label for="new_forum_topic">Or start a new topic <span class="muted">(optional)</span></label>
             <input type="text" id="new_forum_topic" name="new_forum_topic" maxlength="80" />
           </div>
+          <p class="form-error" id="message-error" role="alert" hidden></p>
           <button type="submit" class="button">Post</button>
         </form>
       </section>
@@ -256,4 +261,10 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if can('view') and active_topic %}
+<script src="{{ url_for('static', filename='js/messages.js') }}"></script>
+{% endif %}
 {% endblock %}
