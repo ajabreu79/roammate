@@ -93,11 +93,11 @@ def create_app(test_config=None):
         app.config["SQLALCHEMY_ENGINE_OPTIONS"] = options
 
    try:
-    os.makedirs(app.instance_path, exist_ok=True)
-except OSError:
-    # Read-only filesystem (e.g. Vercel). The instance folder is only
-    # needed for the local SQLite fallback, so it's safe to skip.
-    pass
+        os.makedirs(app.instance_path, exist_ok=True)
+    except OSError:
+        # Read-only filesystem (e.g. Vercel). The instance folder is only
+        # needed for the local SQLite fallback, so it's safe to skip.
+        pass
 
     db.init_app(app)
     migrate.init_app(app, db)
